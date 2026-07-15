@@ -1,4 +1,4 @@
-# 01 — Your first cloud task
+# 01 -- Your first cloud task
 
 **~30 minutes.** Prerequisite: both [setup checkpoints](../setup/) are green.
 
@@ -54,7 +54,7 @@ that distinction in mind today: **logic is cheap to iterate, dependencies are no
 You're looking for:
 
 - Status **Succeeded**.
-- A task named something like `hello.main`, with a **child action** under it — the
+- A task named something like `hello.main`, with a **child action** under it -- the
   greeting task it called.
 - Your greeting in the outputs.
 
@@ -62,7 +62,7 @@ You're looking for:
 > is normal and will happen again after lunch.
 
 **Don't skip the UI visit.** Kiro will tell you it succeeded. Today's habit is not
-believing it until the cluster says so. That habit is the actual skill — the code is the
+believing it until the cluster says so. That habit is the actual skill -- the code is the
 easy part.
 
 ---
@@ -77,7 +77,7 @@ The short version, so you can tell whether Kiro's answer is any good:
 
 Your function has to run *somewhere*. That somewhere is a container on a Kubernetes
 node, and a container needs an image. The `TaskEnvironment` is where you say what that
-execution context looks like — which image, how much CPU and memory, which secrets. The
+execution context looks like -- which image, how much CPU and memory, which secrets. The
 `@env.task` decorator is what makes an ordinary function addressable by the cluster: it
 gets a name (`hello.main`), typed inputs and outputs, and its own tracked, retryable
 lifecycle.
@@ -92,9 +92,9 @@ free rather than something you have to engineer.
 Ask Kiro to change the greeting and re-run. Watch how long it takes.
 
 That's your feedback loop for the rest of the day: seconds, not minutes, because the
-image never changes. Worth internalizing now — it's what makes the parallel stuff in
+image never changes. Worth internalizing now -- it's what makes the parallel stuff in
 Module 02 fun instead of tedious.
 
 ---
 
-**Next:** [02 — Fan out](02-fan-out.md)
+**Next:** [02 -- Fan out](02-fan-out.md)

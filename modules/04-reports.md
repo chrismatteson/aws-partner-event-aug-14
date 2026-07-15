@@ -1,9 +1,9 @@
-# 04 — See inside
+# 04 -- See inside
 
 **~30 minutes.**
 
 So far you've watched Flyte's view of your pipeline: what ran, how long, what failed.
-That's *orchestration* — real, but it stops at the container boundary. It can't tell you
+That's *orchestration* -- real, but it stops at the container boundary. It can't tell you
 that your parse quality fell off a cliff on scanned documents, or which prompt variant
 won.
 
@@ -28,7 +28,7 @@ decorator that enables it. If nothing shows up in the UI, that flag is missing.
 > **Stretch:** Ask Kiro what the difference is between what the Flyte execution view shows you and what a `flyte.report` shows you. When would you reach for each?
 
 > ⚠️ **Reports don't happen by accident.** Reporting has to be switched on for the task
-> — `flyte.report` is a module (`log`, `flush`, `replace`, `get_tab`), and there's a
+> -- `flyte.report` is a module (`log`, `flush`, `replace`, `get_tab`), and there's a
 > flag on the task decorator that enables it. If Kiro writes report code and nothing
 > shows up in the UI, that flag is missing. Have it check the MCP rather than guess.
 
@@ -38,7 +38,7 @@ decorator that enables it. If nothing shows up in the UI, that flag is missing.
 
 In the Flyte UI, open the execution and find the **report** tab.
 
-Your chart is there — rendered, interactive, attached to this specific run. Not a file
+Your chart is there -- rendered, interactive, attached to this specific run. Not a file
 someone has to find. Not a notebook that only runs on one laptop. Part of the execution
 record.
 
@@ -74,7 +74,7 @@ The distinction is worth being precise about, because it comes back in
 
 - The **execution view** is *operational*. Did it run? How long? What failed? Flyte
   knows this about every task without being told, because it's the thing running them.
-- A **report** is *semantic*. Is the output any good? Flyte has no idea — only your code
+- A **report** is *semantic*. Is the output any good? Flyte has no idea -- only your code
   knows what "good" means for your data. A report is how your code says so.
 
 "It succeeded" and "it worked" are different claims. A green execution with garbage
@@ -83,4 +83,4 @@ that.
 
 ---
 
-**Next:** [05 — Deploy it](05-deploy.md)
+**Next:** [05 -- Deploy it](05-deploy.md)

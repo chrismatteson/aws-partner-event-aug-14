@@ -1,0 +1,23 @@
+{
+  "id": "FEAT-003",
+  "type": "docs",
+  "description": "Address three review issues: (1) Add verification prose back to Module 11 Checkpoint 2 Understand section, (2) Differentiate Stretch/Understand overlap in Modules 10-11, (3) Normalize em-dashes to -- across all modified files.",
+  "status": "in_progress",
+  "steps": [
+    "Module 11: Add 2-3 verification sentences to the 'Understand what just happened' section after Checkpoint 2, covering register() env var reading (PHOENIX_* vs OTEL_* priority), auto_instrument package scan mechanism, and the no-spans-no-error failure mode.",
+    "Modules 10-11: Where Stretch questions overlap with the immediately following Understand section, add bridging text or differentiate the angle so students don't feel they're being asked twice.",
+    "All files: Replace all em-dash characters with -- in README.md, modules/01-first-task.md, modules/02-fan-out.md, modules/03-resilience.md, modules/04-reports.md, modules/05-deploy.md, modules/10-llamaindex.md, modules/11-arize-phoenix.md, modules/99-now-you-drive.md."
+  ],
+  "acceptance_criteria": [
+    "Module 11 Checkpoint 2 Understand section contains enough verification detail for students to self-check Kiro's answer about register(), auto_instrument, and batch=False",
+    "Stretch and Understand sections in Modules 10-11 are differentiated -- either with bridging text or by asking different questions",
+    "No em-dash characters remain in any of the 9 listed files; all use -- consistently"
+  ],
+  "verification": [
+    "Grep for em-dash character in all 9 files returns zero matches",
+    "Read Module 11 Checkpoint 2 Understand section and confirm verification prose",
+    "Read Modules 10-11 Stretch/Understand pairs to confirm differentiation"
+  ],
+  "blocked_reason": null,
+  "findings": null
+}

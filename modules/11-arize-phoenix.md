@@ -1,10 +1,10 @@
-# 11 — Arize Phoenix: trace an agent running inside Flyte
+# 11 -- Arize Phoenix: trace an agent running inside Flyte
 
-**75 minutes.** You'll add a third tab — and you'll deploy the thing behind it yourself.
+**75 minutes.** You'll add a third tab -- and you'll deploy the thing behind it yourself.
 
 By now you've watched a lot of work run in the Flyte UI. You know when a task started,
 whether it retried, how long it took, and what it returned. That's orchestration, and
-it's most of what you need — right up until the thing inside the task is an LLM.
+it's most of what you need -- right up until the thing inside the task is an LLM.
 
 Then the questions change. The task went green in 8 seconds. Fine. But *what did you
 actually send to the model?* How many tokens did it burn? The agent called three tools;
@@ -13,8 +13,8 @@ nine cents and the identical one next to it cost two? Flyte can't tell you any o
 and it shouldn't try. From Flyte's point of view your task is a black box that exited 0.
 
 **Arize Phoenix** opens the box. It's an LLM observability tool built on OpenTelemetry:
-your code emits *spans* — one per model call, one per tool call, nested to match the
-shape of the agent — and Phoenix renders them as a tree you can click through, with the
+your code emits *spans* -- one per model call, one per tool call, nested to match the
+shape of the agent -- and Phoenix renders them as a tree you can click through, with the
 full prompt, the full completion, token counts, and latency on every node.
 
 Here's what makes this module different from every Phoenix tutorial you'll find:
@@ -24,7 +24,7 @@ the same cluster your tasks run on. Your traces never leave your AWS account. Th
 signup, no API key, and no quota to burn.
 
 The point of the module isn't "here's another dashboard." It's this: **Flyte and Phoenix
-answer different questions, and you want both.** Flyte tells you *the run* happened —
+answer different questions, and you want both.** Flyte tells you *the run* happened --
 retries, parallelism, resources, lineage. Phoenix tells you *what the model did* inside
 it. By the end you'll have both open, showing you the same executions from two angles,
 joined by an ID you stamped yourself.
@@ -34,7 +34,7 @@ error message anywhere. They rhyme, and the pattern they form is the real lesson
 
 > **A note on Phoenix and licensing.** Phoenix is the open-source project; Arize AX is
 > the commercial platform around it. Phoenix ships under the **Elastic License 2.0**,
-> which is *not* OSI-approved — you can use it internally as much as you like, but you
+> which is *not* OSI-approved -- you can use it internally as much as you like, but you
 > can't turn around and offer it as a hosted service. Running it on your own cluster for
 > your own team, which is exactly what you're about to do, is squarely fine. But if your
 > org has a policy that only permits OSI-approved licenses, find out now rather than
@@ -44,14 +44,14 @@ error message anywhere. They rhyme, and the pattern they form is the real lesson
 
 ## 1. Deploy Phoenix onto your own cluster
 
-In Module 05 you learned `flyte deploy` — it took a task and made it a named, reusable
+In Module 05 you learned `flyte deploy` -- it took a task and made it a named, reusable
 entity on the backend. Hold that thought, because **the same verb ships a whole web
 service.** Flyte v2 has a second kind of environment: a `TaskEnvironment` describes work
 that runs and exits, and an `AppEnvironment` describes a long-running service that sits
 there and answers requests. Underneath it's Knative Serving, which is enabled on your
 devbox by default. Nothing to install, nothing to turn on.
 
-So Phoenix — a normal container that serves a web UI and an OTLP receiver — is just an
+So Phoenix -- a normal container that serves a web UI and an OTLP receiver -- is just an
 app you deploy. Same cluster as your tasks. Same `flyte` CLI. One command.
 
 Fair warning: this is new ground. There's no reference repo to copy and no blog post to
@@ -90,7 +90,7 @@ distroless -- there is no `/bin/sh` in it, so a shell-form command CrashLoops), 
 - **Flyte UI** (`https://$FLYTE_DOMAIN/v2`): the `phoenix` app is listed and healthy, with
   one replica up.
 - **Phoenix UI**: open the URL Kiro found for you. You get the Phoenix interface, with an
-  empty project list. Leave this tab open — it's your third tab for the rest of the day.
+  empty project list. Leave this tab open -- it's your third tab for the rest of the day.
 
 Sit with that for a second. You just deployed a real web service -- a database, an HTTP
 server, a whole frontend -- onto a Kubernetes cluster, from a browser, without writing a
@@ -116,15 +116,15 @@ consulted. Same reflex as `@workflow` and `map_task`: plausible, confident, wron
 And note this is not a paid feature you're getting a taste of. Apps are on by default on
 the OSS devbox (`internalApps.enabled: true`). What you just did, you can do at home.
 
-> ⚠️ **The distroless trap.** The Phoenix image has no shell. Not a minimal shell — none.
+> ⚠️ **The distroless trap.** The Phoenix image has no shell. Not a minimal shell -- none.
 > So the instinctive `command=["/bin/sh", "-c", "phoenix serve"]` doesn't produce a helpful
 > error; it produces a CrashLoopBackOff and a container that never starts. That's why the
 > command is the explicit interpreter path plus the module. Distroless images are
-> increasingly common — smaller, and a much smaller attack surface — and this failure will
+> increasingly common -- smaller, and a much smaller attack surface -- and this failure will
 > look familiar the second time you hit it.
 
 > 🔴 **The scale-to-zero footgun. This is the one that will get you.** `Scaling` defaults
-> to `replicas=(0, 1)` — scale to zero when idle, which is exactly what you want for a
+> to `replicas=(0, 1)` -- scale to zero when idle, which is exactly what you want for a
 > service nobody's using. But Phoenix's storage here is **ephemeral**: SQLite on the
 > container filesystem, no persistent volume. So the sequence is: you deploy Phoenix, you
 > go to lunch, Knative scales it to zero, the container is destroyed, and **every trace you
@@ -140,7 +140,7 @@ the OSS devbox (`internalApps.enabled: true`). What you just did, you can do at 
 
 **On auth:** we set `requires_auth=False`, which should make you twitch given how carefully
 setup treated Cognito. Here's why it isn't a hole. Your task pods reach Phoenix over
-*in-cluster* DNS — pod to Kourier, entirely inside the cluster. That traffic never touches
+*in-cluster* DNS -- pod to Kourier, entirely inside the cluster. That traffic never touches
 the ALB and never sees Cognito, so app-level auth would do nothing for it except break
 your exporter. The public URL is a different path and still sits behind your devbox
 ingress. Nothing here is on the open internet.
@@ -152,7 +152,7 @@ ingress. Nothing here is on the open internet.
 Small first step, and a genuinely interesting one. You're going to make a single Claude
 call from inside a Flyte task and watch the span appear in the Phoenix you just deployed.
 
-Think about the path that span takes — it's remarkably short. Your Kiro sandbox uploads a
+Think about the path that span takes -- it's remarkably short. Your Kiro sandbox uploads a
 code bundle to your devbox. The devbox schedules a pod on k3s, on an EC2 instance in *your*
 AWS account. That pod calls Claude on Bedrock, and on the way out it ships a span over OTLP
 to a Phoenix pod sitting a few hundred microseconds away on the same cluster. Nothing on
@@ -179,7 +179,7 @@ message = client.messages.create(
 > ⚠️ **The model IDs on this endpoint are bare.** `anthropic.claude-sonnet-5`,
 > `anthropic.claude-opus-4-8`, `anthropic.claude-haiku-4-5`. **No `us.` prefix. No `-v1:0`
 > suffix.** Those belong to the *legacy* Bedrock surface, they are all over the public
-> internet, and an agent will reach for them with total confidence — the same trap as the
+> internet, and an agent will reach for them with total confidence -- the same trap as the
 > stale LlamaIndex SDK in Module 10. If Kiro writes `us.anthropic.claude-sonnet-4-v1:0`,
 > that's training data talking, not the docs. Use **Sonnet 5** unless you have a reason not
 > to.
@@ -197,11 +197,11 @@ http://{app-name}-{project}-{domain}.{namespace}.svc.cluster.local/v1/traces
 ```
 
 For a stock devbox that's
-`http://phoenix-flytesnacks-development.flyte.svc.cluster.local/v1/traces` — but confirm
+`http://phoenix-flytesnacks-development.flyte.svc.cluster.local/v1/traces` -- but confirm
 your own project, domain, and namespace rather than trusting mine.
 
 This is also the sane version of a trap you'd hit anywhere else. A pod that resolves
-`localhost` gets *itself*, not your machine and not the devbox host — so a collector
+`localhost` gets *itself*, not your machine and not the devbox host -- so a collector
 endpoint is only ever as good as the address the *pod* can route to. In-cluster DNS is that
 address, and it's the reason running Phoenix on the same cluster makes the networking
 boring instead of a project.
@@ -212,11 +212,11 @@ boring instead of a project.
 > are two different layers and it's an easy hour to lose.
 
 > ⚠️ **Use the HTTP exporter, not gRPC.** Knative routes exactly one port per service, so
-> Phoenix's OTLP-gRPC on 4317 is simply unreachable here — only the port you declared
+> Phoenix's OTLP-gRPC on 4317 is simply unreachable here -- only the port you declared
 > exists. That's fine: port 6006 serves **both** the UI and OTLP-over-HTTP. Pointing
 > `PHOENIX_COLLECTOR_ENDPOINT` at the full `/v1/traces` path is what selects the HTTP
 > exporter. Have Kiro confirm how `phoenix.otel.register()` chooses its protocol and make
-> sure it lands on HTTP — `arize-phoenix-otel` will happily default to gRPC, and gRPC is
+> sure it lands on HTTP -- `arize-phoenix-otel` will happily default to gRPC, and gRPC is
 > the one thing that cannot work on this deployment.
 
 > **Your task:** Create `work/trace_one.py` with a Flyte task that makes a single Claude call via `AnthropicBedrockMantle` and ships the span to your Phoenix. The task takes a question string and returns the answer. Run it and get the execution URL.
@@ -236,21 +236,38 @@ Two tabs, both green:
 You should see the model name, your full prompt, the full completion, input and output
 token counts, and the latency. Nobody wrote code to record any of that.
 
-If Phoenix is empty, don't move on — the rest of this section and all of section 3 are
+If Phoenix is empty, don't move on -- the rest of this section and all of section 3 are
 about exactly that.
 
 ### 💡 Understand what just happened
 
-Ask Kiro to explain why the Anthropic instrumentor worked transparently on your Bedrock
-call. The key insight: `openinference-instrumentation-anthropic` patches
+If you already asked the Stretch above, you have Kiro's answer about why the Anthropic
+instrumentor works on Bedrock. Now verify it hit the key mechanism: `openinference-instrumentation-anthropic` patches
 `anthropic.resources.messages.Messages`, and `Anthropic`, `AnthropicBedrock`, and
 `AnthropicBedrockMantle` all share that exact class -- the transport differs, the request
-class does not. Your telemetry required zero changes when you switched clouds. Ask Kiro
-when that property breaks and what the wrong instrumentor choice looks like.
+class does not. Your telemetry required zero changes when you switched clouds. If Kiro's
+answer didn't mention the shared `Messages` class, push it: "Which specific class does
+the instrumentor patch, and why does that cover all three client variants?"
 
-Also ask how `register()` found your endpoint (it reads `PHOENIX_COLLECTOR_ENDPOINT`),
-what `auto_instrument=True` actually does (scans for installed `openinference-instrumentation-*`
-packages), and why `batch=False` matters here. That last one is the whole next section.
+Then go further -- ask Kiro when that property *breaks* and what the wrong instrumentor
+choice looks like. That's the angle the Stretch didn't cover.
+
+Also ask how `register()` found your endpoint, what `auto_instrument=True` actually
+does, and why `batch=False` matters here. Here is what a complete answer covers, so you
+can check Kiro's work:
+
+- **`register()` and env vars.** It reads `PHOENIX_COLLECTOR_ENDPOINT` (and optionally
+  `PHOENIX_API_KEY` for the auth header). It also recognizes `OTEL_EXPORTER_OTLP_ENDPOINT`,
+  but `PHOENIX_*` wins when both are set. If you set both and they disagree, your spans go
+  to the `PHOENIX_*` address and the `OTEL_*` one you're staring at in a debug session is a
+  red herring. This is a real afternoon to lose.
+- **`auto_instrument=True` and the package scan.** On startup it walks every installed
+  package looking for `openinference-instrumentation-*` entry points. For each one it
+  finds, it calls that instrumentor's `instrument()`. If the right package is missing,
+  nothing errors -- you simply get zero spans and no message explaining why. The failure
+  mode is silence, not an exception.
+- **`batch=False`** swaps `BatchSpanProcessor` for `SimpleSpanProcessor`, exporting each
+  span synchronously the moment it closes. That last one is the whole next section.
 
 > ⚠️ **The corollary is a trap.** There *is* a package called
 > `openinference-instrumentation-bedrock`. It is a **different package** and it instruments
@@ -282,7 +299,7 @@ Your task calls Claude, gets a span, hands it to the buffer, returns its result,
 process exits. The batch interval hasn't elapsed. The background thread never gets to run.
 **The pod is gone and your spans went with it.** No exception. No warning. No log line.
 Phoenix just sits there empty while the Flyte UI shows a cheerful green check, because from
-Flyte's point of view *nothing went wrong* — the task did its job and exited 0.
+Flyte's point of view *nothing went wrong* -- the task did its job and exited 0.
 
 Short-lived processes are the pathological case for batched telemetry, and **Flyte tasks
 are short-lived by design.** Every one of them. This is not an edge case here, it's the
@@ -307,7 +324,7 @@ were on call, staring at a dashboard that just stopped having data in it, this i
 would look like.
 
 *(If a span did sneak through: your task ran slow enough for the batch timer to fire, or
-the interpreter shut down cleanly enough to flush. Both happen. It's non-deterministic —
+the interpreter shut down cleanly enough to flush. Both happen. It's non-deterministic --
 which is worse, not better. A bug that appears in 1 run out of 20 is a bug you'll chase for
 a week.)*
 
@@ -385,7 +402,7 @@ You parsed a stack of PDFs in Module 10. Let's put a small agent on top of them.
 In Phoenix, open `workshop-11-agent` and open the trace. You should see a tree, not a list:
 `agent_loop` at the root, with several LLM spans as children, one per turn.
 
-Walk it. On each LLM span, look at the input messages — notice that the conversation grows
+Walk it. On each LLM span, look at the input messages -- notice that the conversation grows
 on every turn as tool results get appended. Look at the tool-use blocks in the output:
 that's the model *deciding* to call your function. Look at token counts climbing turn over
 turn. Look at the latency waterfall and find where the time actually went.
@@ -427,7 +444,7 @@ is one search away from its execution in Flyte, and vice versa.
 ### ✅ Checkpoint 5: both tabs, same story
 
 - **Flyte UI**: one parent execution, ten child tasks running in parallel. You've seen this
-  shape since Module 02 — the fan-out, the concurrency, the timeline.
+  shape since Module 02 -- the fan-out, the concurrency, the timeline.
 - **Phoenix UI**: ten traces in `workshop-11-agent`. Sort by token count. Sort by latency.
   They are not all the same, and the spread is the interesting part.
 
@@ -435,7 +452,7 @@ Now pivot. Pick the most expensive trace in Phoenix, read its `flyte.execution_i
 attribute, and find that exact execution in the Flyte UI. Then go the other way: grab an
 execution ID from Flyte and search Phoenix for it.
 
-That round trip — Phoenix to Flyte and back — is the punchline of the module.
+That round trip -- Phoenix to Flyte and back -- is the punchline of the module.
 
 ### 💡 Understand what just happened
 
@@ -443,8 +460,10 @@ Ask Kiro to explain the architecture you just built: two systems, two sets of qu
 one shared ID. Have it walk through the table of what Flyte answers (ran at all, retries,
 parallelism, lineage, caching) versus what Phoenix answers (prompt content, token counts,
 tool choices, per-call latency). Ask why an orchestrator that tried to also be an LLM
-observation tool would be worse at both, and why retries make the `flyte.attempt` attribute
-especially important. Finally, ask it to reflect on where all of this is running -- your
+observation tool would be worse at both. If you already asked about retries in the
+Stretch, push further: what does it look like when a retry *succeeds* -- two traces in
+Phoenix, one green task in Flyte -- and which trace has the bug you're looking for?
+Finally, ask it to reflect on where all of this is running -- your
 tasks, traces, dashboard, and orchestrator, all on one EC2 box in your own account.
 
 ---
@@ -465,7 +484,7 @@ own database with it.
 
 **Not one of them raises. Not one of them logs. Not one of them turns anything red.** In
 every case each system involved reports complete success, because observability tooling is
-built — correctly — never to break the application it's watching. The price of that design
+built -- correctly -- never to break the application it's watching. The price of that design
 is that its own failure mode is *silence*, and silence looks exactly like "nothing has
 happened yet."
 
@@ -474,7 +493,7 @@ So here's the thesis of this module, and the habit worth taking home:
 **You verify observability by looking, not by the absence of errors.** After you wire up
 tracing, go open the UI and confirm a span landed. Put that check in your deploy. Alert on
 the *absence* of telemetry, because nothing else will. This is the same instinct the whole
-workshop has been drilling — when Kiro says it worked, go look at the Flyte UI — turned
+workshop has been drilling -- when Kiro says it worked, go look at the Flyte UI -- turned
 around and pointed at your instrumentation instead of your agent.
 
 ---
@@ -500,20 +519,20 @@ Pick one. There's more here than fits in 75 minutes.
 - **Push the cost data back into Flyte.** Take token counts out of the agent loop and render
   them as an HTML report with `flyte.report` (Module 04), so the Flyte UI shows a cost
   summary right on the execution.
-- **Try an evaluation.** Phoenix does more than tracing — it can run LLM-as-judge evals over
+- **Try an evaluation.** Phoenix does more than tracing -- it can run LLM-as-judge evals over
   the traces you've collected and attach scores to spans. That's the next thing to read
   about: `arize.com/docs/phoenix`.
 
 > **If you don't have a cluster.** Arize runs a hosted Phoenix with a self-serve free tier
-> at `app.phoenix.arize.com` — sign up with Google or GitHub, no credit card, and you get a
+> at `app.phoenix.arize.com` -- sign up with Google or GitHub, no credit card, and you get a
 > Space, an API key, and a collector endpoint. Everything in this module works against it
 > unchanged: set `PHOENIX_COLLECTOR_ENDPOINT` to your Space's URL and `PHOENIX_API_KEY` to
 > your key, and `register()` picks up both. It's the fastest way to try Phoenix from a
 > laptop, and it comes with span and retention quotas worth reading before you fan out to a
-> thousand items. (The hostname is `app.phoenix.arize.com` — the bare `phoenix.arize.com`
+> thousand items. (The hostname is `app.phoenix.arize.com` -- the bare `phoenix.arize.com`
 > doesn't resolve, and the docs live at `arize.com/docs/phoenix`.) We didn't use it today
 > because you have something better: a cluster of your own.
 
 ---
 
-**Next:** [99 — Now you drive](99-now-you-drive.md) — build something of your own.
+**Next:** [99 -- Now you drive](99-now-you-drive.md) -- build something of your own.

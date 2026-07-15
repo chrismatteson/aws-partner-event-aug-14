@@ -1,4 +1,4 @@
-# 10 — LlamaIndex: parse a stack of PDFs in parallel
+# 10 -- LlamaIndex: parse a stack of PDFs in parallel
 
 **90 minutes.** You'll take a folder of genuinely unpleasant PDFs, parse all of them at
 once on your devbox, make re-runs nearly free, and then spend real money on *only* the
@@ -168,12 +168,15 @@ look anyway.
 
 ### 💡 Understand what just happened
 
-Ask Kiro to explain what just ran in terms of where the work physically happened. Have it
-walk you through: which parts of the script executed in the Kiro sandbox, which parts
-executed in a pod on your devbox, how the PDF got from the repo to the pod, and what
-exactly gets uploaded when you call `flyte run`. Understanding that `flyte run` ships a
-**code bundle** and not an **image** is what makes the next hour feel fast instead of
-agonizing.
+If you already asked this in the Stretch above, compare Kiro's answer to this and see if
+it covered the key distinction:
+
+`flyte run` ships a **code bundle** -- a tarball of your `.py` files -- not an image.
+The image was built once (and cached). Your code rides alongside it. That's why re-runs
+are fast even though your task executes on a remote cluster. Understanding that split is
+what makes the next hour feel fast instead of agonizing. If Kiro's explanation didn't
+draw this line clearly, push it: "What exactly gets uploaded on subsequent runs, and why
+is it so much faster than the first?"
 
 ---
 
@@ -228,12 +231,17 @@ PDFs it's modest. Picture the number at corpus scale.
 
 ### 💡 Understand what just happened
 
-Ask Kiro to explain the concurrency model: how many pods did Flyte create, what decided
-that number, and what concurrency controls exist on `flyte.map` (have it check the MCP).
-Then ask the harder question: if one PDF in the list is corrupt and its parse raises an
-exception, what happens to the other nine, and what does the parent task see? That second
-question is the one people get wrong when they reason about `map` by analogy to Python's
-built-in `map`.
+If you already asked the Stretch questions above, you have Kiro's answer about pod count
+and failure isolation. Now push deeper on two things the Stretch didn't cover:
+
+First, ask about **concurrency controls** on `flyte.map` -- have Kiro check the MCP for
+what parameter caps how many map actions run simultaneously, because you will need it in
+section 4 when you hit a rate-limited API.
+
+Second, ask the precision question about partial failure: when one input raises, what
+does the *parent task* see? Does it get a partial result list? An exception? A mix? That
+second question is the one people get wrong when they reason about `map` by analogy to
+Python's built-in `map`.
 
 ---
 
@@ -301,11 +309,14 @@ answers forever.
 
 Ask Kiro to show you exactly what goes into the cache key for your parse task, and walk
 through why changing one byte of the PDF changed it. Where do the cached outputs
-physically live? Then the hard question: what happens to the cache when you change the
-*code* of the parse task but not its inputs? Does Flyte know the function is different?
-Ask the MCP about cache versioning and find out what you'd have to do to force a
-re-parse after a code change. That last one is the classic caching footgun and it's
-better to meet it here than in production at 2am.
+physically live?
+
+If you already asked the Stretch about cache versioning, compare Kiro's earlier answer to
+this: ask the MCP about cache versioning and find out what you'd *actually* have to do to
+force a re-parse after a code change. The mechanism is specific and non-obvious -- does
+Flyte hash the function body? Does it compare bytecode? Or is there an explicit version
+you bump? That's the classic caching footgun and it's better to meet it here than in
+production at 2am.
 
 ---
 
@@ -441,15 +452,13 @@ quality exactly where it mattered.
 
 ### 💡 Understand what just happened
 
-Ask Kiro to walk you through the cost model of the pipeline you just built. For a corpus
-of 10,000 PDFs averaging 10 pages, at your current escalation rate: how many credits
-does this design consume, versus running LlamaParse Fast over everything, versus Agentic
-over everything? Have it show the arithmetic. Then ask where this design is *wrong* --
-what kinds of documents would make the escalation heuristic fail badly, what breaks if
-LiteParse gets better next quarter, and which part of this you'd actually not ship. Sit
-with that answer for a minute. The pattern you built is good, and it is not
-unconditionally good, and the difference between those two statements is most of
-engineering.
+If you already asked the Stretch cost-model question above, you have the arithmetic. Now
+push Kiro on the parts the Stretch didn't cover: what breaks if LiteParse gets *better*
+next quarter -- does your heuristic start escalating nothing, and is that a problem? What
+if the corpus shifts from IRS forms to handwritten medical notes? And which part of this
+pipeline would you actually not ship to production without changing? Sit with that answer
+for a minute. The pattern you built is good, and it is not unconditionally good, and the
+difference between those two statements is most of engineering.
 
 ---
 
@@ -486,4 +495,4 @@ Pick one. There's more here than fits in the time, and that's fine.
 
 ---
 
-**Next:** [11 — Arize Phoenix: trace an agent running inside Flyte](11-arize-phoenix.md)
+**Next:** [11 -- Arize Phoenix: trace an agent running inside Flyte](11-arize-phoenix.md)

@@ -1,8 +1,8 @@
-# 05 — Deploy it
+# 05 -- Deploy it
 
 **~30 minutes.**
 
-Everything so far has been `flyte run` — which uploads your code from wherever you're
+Everything so far has been `flyte run` -- which uploads your code from wherever you're
 sitting and runs it right now. That's a great development loop and a terrible production
 story, because the pipeline only exists as long as your session does. It lives in your
 sandbox. Nobody else can trigger it. Nothing can schedule it. If your tab closes, the
@@ -10,7 +10,7 @@ recipe is gone.
 
 `flyte deploy` registers your task environment on the backend as a **named, versioned
 entity**. It stops being "code I ran once" and becomes something the platform knows
-about — that a schedule can fire, that another system can trigger, that a colleague can
+about -- that a schedule can fire, that another system can trigger, that a colleague can
 run without ever seeing your source.
 
 ---
@@ -61,14 +61,14 @@ it.
 
 ## Worth knowing
 
-Deployment is where versioning starts to matter — deploy again and you get a new version
+Deployment is where versioning starts to matter -- deploy again and you get a new version
 rather than a silent overwrite, so a schedule pinned to a version doesn't change under
 you because someone pushed at 4pm on a Friday. Ask Kiro (and the MCP) how Flyte v2
 versions deployed entities if you want to pull that thread.
 
 ---
 
-**Next up — the partner tracks.** Same Flyte you've been using, pointed at real problems:
+**Next up -- the partner tracks.** Same Flyte you've been using, pointed at real problems:
 
-- [10 — LlamaIndex](10-llamaindex.md): parse a pile of PDFs in parallel, cheaply
-- [11 — Arize Phoenix](11-arize-phoenix.md): see inside an agent, not just around it
+- [10 -- LlamaIndex](10-llamaindex.md): parse a pile of PDFs in parallel, cheaply
+- [11 -- Arize Phoenix](11-arize-phoenix.md): see inside an agent, not just around it
