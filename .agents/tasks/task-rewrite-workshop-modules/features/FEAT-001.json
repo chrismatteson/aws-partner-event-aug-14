@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "docs",
   "description": "Rewrite early modules (01-05) from copy-paste prompts to Your task / Hints / Stretch format, and update README.md with a 'How to use this workshop' section explaining the new interaction model.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Update README.md: Add a 'How to use this workshop' section that explains the student workflow: read the module, write a prompt, verify in UI, ask why, move on. Reframe the existing 'How this workshop works' section to remove references to pasting prompts and instead describe constructing prompts from structured hints.",
     "Rewrite modules/01-first-task.md: Replace the 'Build it' blockquote prompt with a Your task/Hints/Stretch blockquote. Move explanatory content that was AFTER the prompt to BEFORE the prompt section so students understand what to ask for. Keep the checkpoint exactly as-is. Transform the lightbulb section from 'Prompt Kiro:' with a blockquote into an instruction to ask Kiro to explain (framed as 'Ask Kiro to explain...'). Keep all technical warnings (podman, build time, etc.) and explanatory prose. Keep the 'Try this' section.",
@@ -29,5 +29,5 @@
     "Confirm checkpoints are unchanged by checking emoji presence"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All modules 01-05 rewritten successfully. No build/test commands needed (pure documentation). Verified: no 'Prompt Kiro:' remains in modules 01-05, all checkpoints preserved, all technical warnings preserved, new Your task/Hints/Stretch format present in all modules. README updated with How to use this workshop subsection and no longer mentions pasting prompts. Progressive difficulty maintained - module 01 has the most specific hints including exact API names, module 05 gives less specific guidance."
 }
