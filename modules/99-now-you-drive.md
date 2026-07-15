@@ -1,6 +1,6 @@
 # 99 — Now you drive
 
-**~60 minutes.** No prompts written for you. That's the point.
+**~60 minutes.** No task boxes, no hints, no scaffolding. That's the point.
 
 You've seen the whole arc: cloud execution, fan-out, resilience, reports, deployment,
 and two partner integrations on top. You know the loop — **ask Kiro to build it, run it,

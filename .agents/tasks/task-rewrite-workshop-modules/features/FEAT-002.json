@@ -1,0 +1,32 @@
+{
+  "id": "FEAT-002",
+  "type": "docs",
+  "description": "Rewrite the long/complex modules (10-llamaindex, 11-arize-phoenix) and update module 99 with minimal changes. These modules have multiple sub-sections each with their own prompts, requiring careful treatment to maintain their progressive structure while converting to the new format.",
+  "status": "in_progress",
+  "steps": [
+    "Rewrite modules/10-llamaindex.md: This module has 4 major sections each with prompts: (1) LiteParse zero friction, (2) Fan out with flyte.map, (3) Cache by content hash (with a secondary 'prove the contract' prompt), (4) Escalate the hard pages (with API key prompt + escalation prompt). Convert each prompt to Your task/Hints/Stretch format. Keep all checkpoints exactly as-is. Keep all technical warnings (stale SDK warning, apt packages, image config, credit math, rate limits). Keep the 'Push it further' section. Keep all explanatory prose but reorganize so it flows BEFORE the task boxes where it helps students understand what to ask for. The lightbulb sections should become 'Ask Kiro to explain...' framing. Since this is a later module, hints should be less hand-holding than modules 01-05.",
+    "Rewrite modules/11-arize-phoenix.md: This module has 5 major sections: (1) Deploy Phoenix, (2) One LLM call, (3) The flush gotcha (with break-it and fix-it prompts), (4) Trace a real agent, (5) Fan out and join views. Convert each prompt/blockquote to Your task/Hints/Stretch format. Keep all checkpoints exactly as-is. Keep ALL technical warnings (distroless trap, scale-to-zero footgun, port 80 vs 6006, HTTP vs gRPC, wrong instrumentor, licensing note). Keep the 'Three silent failures' summary section. Keep the 'Push it further' section. Keep all explanatory prose. Since this is the most advanced module, hints should require the most independent thinking.",
+    "Update modules/99-now-you-drive.md: This module is already open-ended with no blockquote prompts to paste. Make minimal changes: ensure it references the new interaction model (constructing prompts rather than pasting them). Keep all content, suggestions, and habits sections as-is."
+  ],
+  "acceptance_criteria": [
+    "Module 10 has all its prompts (6 total across 4 sections) replaced with Your task/Hints/Stretch format",
+    "Module 11 has all its prompts (5 total across 5 sections) replaced with Your task/Hints/Stretch format",
+    "Module 99 is minimally updated to reference the new interaction model without major restructuring",
+    "All checkpoints in modules 10 and 11 are preserved exactly as they were",
+    "All technical warnings in both modules are preserved exactly (stale SDK, apt packages, credit math, distroless, scale-to-zero, port confusion, etc.)",
+    "All lightbulb sections are reframed as 'Ask Kiro to explain...' framing",
+    "The 'Push it further' sections are unchanged",
+    "Module 10 hints are less guided than modules 01-05 (students need more independent thinking)",
+    "Module 11 hints are the least guided of all (most advanced module)",
+    "Explanatory content is positioned to help students understand what to build BEFORE they see the task"
+  ],
+  "verification": [
+    "Read each modified file and confirm structural changes match acceptance criteria",
+    "Grep for 'Prompt Kiro' and 'Prompt:' in modules 10, 11, 99 to confirm none remain",
+    "Grep for '**Your task:**' in modules 10 and 11 to confirm new format is present",
+    "Confirm all checkpoints are unchanged",
+    "Confirm all warning/info blocks are preserved"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

@@ -10,12 +10,12 @@ inputs are real documents, the parallelism saves real minutes, and the escalatio
 saves real dollars. Same primitives. Higher stakes.
 
 The document-parsing problem is a nice shape for this. Most pages in most PDFs are
-boring — a paragraph of text, a heading, a footer. A few pages are horrible: a scanned
+boring -- a paragraph of text, a heading, a footer. A few pages are horrible: a scanned
 table, a form with nested cells, a chart with numbers baked into pixels. Cheap tools
 handle the boring 95% perfectly well and mangle the ugly 5%. Expensive tools handle
 everything, and charge you for the boring pages too.
 
-The lazy answer is to pick one tool. The good answer — the one you'll build — is to run
+The lazy answer is to pick one tool. The good answer -- the one you'll build -- is to run
 the cheap thing over everything, *notice* which pages it struggled with, and send only
 those to the expensive thing.
 
@@ -40,25 +40,25 @@ Put your scratch code in **`work/`**, same as every other module.
 ## The two tools, honestly
 
 You're about to use two things from the LlamaIndex world. They are not competitors and
-this is not a sales pitch — they're different points on a cost curve.
+this is not a sales pitch -- they're different points on a cost curve.
 
 | | **LiteParse** | **LlamaParse** |
 |---|---|---|
 | Where it runs | Fully local, in your task's pod | LlamaIndex's cloud |
 | Cost | Free, open source (MIT-ish, Rust core) | Credits, per page |
 | API key | **None** | `LLAMA_CLOUD_API_KEY` |
-| Speed | Fast — no network round trip | Slower — it's an HTTP call |
+| Speed | Fast -- no network round trip | Slower -- it's an HTTP call |
 | Good at | Text, simple layout, basic OCR (Tesseract) | Dense tables, scans, layout that needs a model to read |
 | Bad at | Anything that needs *understanding* the page | Your budget |
 
-LiteParse shipped in March 2026 — [github.com/run-llama/liteparse](https://github.com/run-llama/liteparse),
+LiteParse shipped in March 2026 -- [github.com/run-llama/liteparse](https://github.com/run-llama/liteparse),
 docs at [developers.llamaindex.ai/liteparse/](https://developers.llamaindex.ai/liteparse/).
 
 > One honest caveat worth knowing before you build on it: **LiteParse is TS/Node-native
 > with a Python wrapper.** The Rust core and the TypeScript bindings are where the
 > project's center of gravity is; Python is a first-class wrapper but a wrapper. In
 > practice that means the Python surface can lag the TS one, and the failure modes are
-> occasionally wrapper-shaped rather than parser-shaped. It's fine — just know which
+> occasionally wrapper-shaped rather than parser-shaped. It's fine -- just know which
 > layer you're standing on when something's weird.
 
 Everything in `corpus/` is public IRS paperwork, so nothing here is sensitive. If it
@@ -68,7 +68,7 @@ were, that would change how you use the cloud tool, and we'll come back to that.
 
 ## ⚠️ Read this before Kiro writes a single line of LlamaParse code
 
-This is the number-one way this module goes wrong, and it goes wrong *silently* — you
+This is the number-one way this module goes wrong, and it goes wrong *silently* -- you
 get confident, well-structured, completely dead code.
 
 **The old SDKs are at end of maintenance as of May 1, 2026.** Specifically
@@ -120,7 +120,7 @@ image=(
 Build it once at the start of the module and every task here can share it. The first
 build takes a few minutes (apt packages are the slow part); after that, cached.
 
-> ⚠️ **The apt packages are not optional.** Without Tesseract, LiteParse doesn't error —
+> ⚠️ **The apt packages are not optional.** Without Tesseract, LiteParse doesn't error --
 > it quietly falls back to text-layer-only extraction and returns nothing useful for
 > scanned pages. You'd conclude the parser is bad when actually a dependency is missing.
 > This is the same shape of failure as everything in [Module 11](11-arize-phoenix.md):
@@ -136,29 +136,20 @@ build takes a few minutes (apt packages are the slow part); after that, cached.
 
 Start as small as possible: one PDF, one task, no API key, no cloud, no credits.
 
-The point of this step isn't the parsing — it's establishing that parsing a document is
+The point of this step isn't the parsing -- it's establishing that parsing a document is
 just *Python running in a task*. There's no special document-processing service here.
 It's a function. Flyte runs functions.
 
-**Prompt:**
+The LiteParse Python API is straightforward: `from liteparse import LiteParse`, then
+`result = LiteParse().parse("doc.pdf")`, and `result.text` gives you the extracted
+content. Confirm against `developers.llamaindex.ai/liteparse/` if anything doesn't line
+up.
 
-> In `work/`, write a Flyte v2 script that parses a single PDF from `corpus/` using
-> LiteParse.
+> **Your task:** Write a Flyte v2 script in `work/` that parses a single PDF from `corpus/` using LiteParse. Define one `TaskEnvironment` with the image above, one task that takes a path to a PDF and returns the character count plus the first 500 characters of extracted text. Run it and get the execution URL.
 >
-> Use the Flyte MCP server for every Flyte signature — don't guess.
+> **Hints:** The image needs apt packages (tesseract-ocr, poppler-utils) and pip packages (liteparse, llama-cloud>=2). No API key needed for this step. Use the Flyte MCP for the v2 task signature. The first build will be slow.
 >
-> - One `TaskEnvironment` whose image is `flyte.Image.from_debian_base()` with apt
->   packages `tesseract-ocr` and `poppler-utils` and pip packages `liteparse` and
->   `llama-cloud>=2`. The first build takes a few minutes — that's expected.
-> - One task that takes a path to a PDF, parses it with LiteParse, and returns the number
->   of characters of text extracted plus the first 500 characters.
-> - The LiteParse Python API is roughly: `from liteparse import LiteParse` then
->   `result = LiteParse().parse("doc.pdf")` and `result.text`. Confirm against
->   `developers.llamaindex.ai/liteparse/` if anything doesn't line up.
-> - No LlamaParse, no API key, no network calls in this step.
->
-> Run it against one file in `corpus/` and give me the URL of the execution in the Flyte
-> UI.
+> **Stretch:** Ask Kiro to explain where the work physically happened -- which parts ran in the sandbox vs. in a pod on your devbox, how the PDF got from the repo to the pod, and why `flyte run` is fast when it's shipping code to a cluster.
 
 ### ✅ Checkpoint: one PDF, parsed, on the cluster
 
@@ -166,7 +157,7 @@ Open your **Flyte UI** tab at `https://$FLYTE_DOMAIN/v2`.
 
 - A new execution appears and reaches **Succeeded**.
 - Click into the task. Its **output** shows a character count well above zero and a
-  recognizable chunk of IRS prose — form numbers, instructions, something that reads
+  recognizable chunk of IRS prose -- form numbers, instructions, something that reads
   like a document rather than mojibake.
 
 If the count is zero or the text is garbage, the parse ran but didn't find a text layer.
@@ -177,14 +168,10 @@ look anyway.
 
 ### 💡 Understand what just happened
 
-**Prompt:**
-
-> Explain what just ran, in terms of where the work physically happened. Which parts of
-> that script executed in the Kiro sandbox, and which parts executed in a pod on my
-> devbox? How did the PDF get from the repo to the pod? And why does `flyte run` take
-> seconds when it's shipping my code to a cluster — what exactly gets uploaded?
-
-That last question matters more than it looks. Understanding that `flyte run` ships a
+Ask Kiro to explain what just ran in terms of where the work physically happened. Have it
+walk you through: which parts of the script executed in the Kiro sandbox, which parts
+executed in a pod on your devbox, how the PDF got from the repo to the pod, and what
+exactly gets uploaded when you call `flyte run`. Understanding that `flyte run` ships a
 **code bundle** and not an **image** is what makes the next hour feel fast instead of
 agonizing.
 
@@ -200,29 +187,17 @@ documents. It is not fine at 10,000, and the code you write at 10 is the code yo
 stuck with at 10,000.
 
 `flyte.map` fans the same task out across a list of inputs. Each input gets its own
-action — its own pod, its own retries, its own logs, its own place in the UI. They run
+action -- its own pod, its own retries, its own logs, its own place in the UI. They run
 side by side. Wall-clock time becomes roughly the time of the *slowest single document*,
 not the sum.
 
 And critically: they fail independently. One corrupt PDF doesn't take down the batch.
 
-**Prompt:**
-
-> Extend the script in `work/` to parse **every** PDF in `corpus/` in parallel using
-> `flyte.map`.
+> **Your task:** Extend your script to parse **every** PDF in `corpus/` in parallel using `flyte.map`. A parent task discovers all PDFs, fans out the parse, collects structured results (filename, character count, page count, parse duration), and returns a summary with totals.
 >
-> Ask the Flyte MCP server for `flyte.map`'s exact signature before you use it — don't
-> guess it, and don't use `map_task`, which is Flyte v1.
+> **Hints:** Use the Flyte MCP for `flyte.map`'s exact signature -- do not use `map_task` (that's v1). Think about what structured data to return from each child so the parent can aggregate meaningfully.
 >
-> - A parent task discovers all the PDFs in `corpus/` and fans the per-document parse
->   task out across them with `flyte.map`.
-> - The per-document task returns a small structured result: the filename, the character
->   count, the page count, and how long the parse took.
-> - The parent collects all the results and returns a summary: total documents, total
->   pages, total characters, and total wall-clock time.
-> - Keep the same image and the same rule about not chaining `.with_*()` onto it.
->
-> Run it and give me the execution URL.
+> **Stretch:** Ask Kiro how many pods Flyte created, what decides that number, and what happens if you pass `flyte.map` a list of 10,000 documents -- does it start 10,000 pods at once? Also ask what happens to the other nine if one PDF is corrupt and raises an exception.
 
 ### ✅ Checkpoint: the fan-out, seen
 
@@ -230,17 +205,17 @@ And critically: they fail independently. One corrupt PDF doesn't take down the b
 while it's still running.
 
 You should see **one child action per PDF**, and they should be **running at the same
-time** — not marching through one after another. Watch the list light up green in a
+time** -- not marching through one after another. Watch the list light up green in a
 ragged wave as the short documents finish before the long ones.
 
 Now click into **any single child action**. It has its own inputs. Its own outputs. Its
 own logs. Its own retry count. It is a first-class execution that you can inspect,
-re-run, and reason about on its own — even though you never named it, and there are ten
+re-run, and reason about on its own -- even though you never named it, and there are ten
 of them.
 
 That's the thing worth internalizing. You wrote one function. You got ten independently
 observable executions, running concurrently, for free. The same line of code that gives
-you ten gives you ten thousand — the only difference is how long the list is and how
+you ten gives you ten thousand -- the only difference is how long the list is and how
 much your cluster can chew at once.
 
 Compare the parent's reported wall-clock time against the sum of the individual parse
@@ -253,24 +228,18 @@ PDFs it's modest. Picture the number at corpus scale.
 
 ### 💡 Understand what just happened
 
-**Prompt:**
-
-> In the execution I just ran, how many pods did Flyte create, and what decided that
-> number? What happens if I pass `flyte.map` a list of 10,000 documents instead of 10 —
-> does it try to start 10,000 pods at once? Ask the Flyte MCP server about concurrency
-> controls on `flyte.map` and show me what knob I'd turn.
->
-> Then: if one PDF in the list is corrupt and its parse raises an exception, what happens
-> to the other nine, and what does the parent task see?
-
-That second question is the one people get wrong when they reason about `map` by analogy
-to Python's built-in `map`. Get the real answer now, from the docs, while it's cheap.
+Ask Kiro to explain the concurrency model: how many pods did Flyte create, what decided
+that number, and what concurrency controls exist on `flyte.map` (have it check the MCP).
+Then ask the harder question: if one PDF in the list is corrupt and its parse raises an
+exception, what happens to the other nine, and what does the parent task see? That second
+question is the one people get wrong when they reason about `map` by analogy to Python's
+built-in `map`.
 
 ---
 
 ## 3. Cache by content hash
 
-Re-run the fan-out you just built. Go on — same code, same corpus, same everything.
+Re-run the fan-out you just built. Go on -- same code, same corpus, same everything.
 
 It parses all ten documents again, from scratch, and charges you the same wall-clock
 time for the privilege of computing an answer it already knows. Nothing changed. Every
@@ -281,32 +250,21 @@ purpose: caching means Flyte has to decide when two runs are "the same," and it 
 to guess on your behalf. **If you want caching, you ask for it.**
 
 Here's the part that makes it genuinely useful. The interesting cache key isn't the
-*filename* — a file called `f1040.pdf` might be revised tomorrow. It's the **content**.
+*filename* -- a file called `f1040.pdf` might be revised tomorrow. It's the **content**.
 Key the parse on a hash of the file's bytes, and you get exactly the semantics you want:
 
-- Unchanged PDF → cache hit → parse skipped entirely.
-- One byte different → different hash → re-parsed.
-- Same document under a new filename → same hash → still a hit.
+- Unchanged PDF -> cache hit -> parse skipped entirely.
+- One byte different -> different hash -> re-parsed.
+- Same document under a new filename -> same hash -> still a hit.
 
 This is a small idea with a large blast radius. Iterating on a pipeline stops meaning
 "re-parse the world every time I change a downstream function."
 
-**Prompt:**
-
-> Add caching to the per-document parse task, keyed on the **content** of each PDF rather
-> than its path.
+> **Your task:** Add caching to the per-document parse task, keyed on the **content** of each PDF rather than its path. The requirement: unchanged bytes mean no re-parse; a single byte changed means re-parse. Run the pipeline twice in a row and show both execution URLs.
 >
-> Ask the Flyte MCP server how caching works in Flyte v2 — the `cache` parameter and
-> `flyte.Cache` — and confirm which level it belongs at (`TaskEnvironment`, `@env.task`,
-> or `.override`) before you write it. It defaults to `"disable"`, so it must be set
-> explicitly.
+> **Hints:** Ask the Flyte MCP about `cache` and `flyte.Cache` in v2 -- find out which level it belongs at (`TaskEnvironment`, `@env.task`, or `.override`). Think about what the task's inputs need to be for Flyte's cache key to have the content-hash property. Have Kiro explain its reasoning before writing code.
 >
-> The requirement: if a PDF's bytes are unchanged, the parse must not run again. If a
-> single byte changes, it must re-parse. Think about what the task's inputs need to be
-> for Flyte's cache key to have that property, and explain your reasoning to me before
-> you write the code.
->
-> Then run it twice in a row and give me both execution URLs.
+> **Stretch:** Ask Kiro what goes into the cache key, where cached outputs physically live, and what happens when you change the *code* of the task but not its inputs -- does Flyte know the function is different?
 
 That "explain your reasoning before you write the code" clause is doing real work. There
 is more than one way to make the cache key depend on content, and the choice has
@@ -319,7 +277,7 @@ Two executions, back to back, in the Flyte UI.
 **First run:** every child action runs normally.
 
 **Second run:** the child actions complete essentially instantly, and the UI marks them
-as **cached**. The task never executed — Flyte recognized the inputs and handed back the
+as **cached**. The task never executed -- Flyte recognized the inputs and handed back the
 previous outputs. Total wall-clock time collapses.
 
 Click into a cached child action. Its outputs are there, fully populated, from a task
@@ -327,39 +285,33 @@ that didn't run.
 
 Now prove the other half of the contract:
 
-**Prompt:**
-
-> Copy one PDF from `corpus/` into `work/` and modify a single byte of it — append a byte
-> to the file, or use a PDF-safe edit if appending corrupts it. Then re-run the pipeline
-> over a list that includes the modified copy alongside the original corpus, and show me
-> the execution URL.
+> **Your task:** Copy one PDF from `corpus/` into `work/`, modify a single byte of it, then re-run the pipeline over a list that includes the modified copy alongside the original corpus. Show the execution URL.
+>
+> **Hints:** You need to see nine cached, one re-parsed. If everything re-ran, the cache key picked up something incidental (path, timestamp). If nothing re-ran, the key is ignoring content entirely.
+>
+> **Stretch:** Ask Kiro about cache versioning -- what happens if you change the code but not the inputs? How would you force a re-parse after a code change?
 
 **Third run:** nine cached, one re-parsed. If you see that in the UI, your cache key is
 keyed on content and you understand it. If *everything* re-ran, the key picked up
-something incidental — a path, a timestamp, a run ID. If *nothing* re-ran, the key is
+something incidental -- a path, a timestamp, a run ID. If *nothing* re-ran, the key is
 ignoring content entirely, which is worse: that cache will happily serve you stale
 answers forever.
 
 ### 💡 Understand what just happened
 
-**Prompt:**
-
-> Show me exactly what goes into the cache key for my parse task, and walk me through why
-> changing one byte of the PDF changed it. Where do the cached outputs physically live?
->
-> Then the hard question: what happens to my cache when I change the *code* of the parse
-> task but not its inputs? Does Flyte know the function is different? Ask the MCP about
-> cache versioning and tell me what I'd have to do to force a re-parse after a code
-> change.
-
-That last one is the classic caching footgun and it's better to meet it here than in
-production at 2am.
+Ask Kiro to show you exactly what goes into the cache key for your parse task, and walk
+through why changing one byte of the PDF changed it. Where do the cached outputs
+physically live? Then the hard question: what happens to the cache when you change the
+*code* of the parse task but not its inputs? Does Flyte know the function is different?
+Ask the MCP about cache versioning and find out what you'd have to do to force a
+re-parse after a code change. That last one is the classic caching footgun and it's
+better to meet it here than in production at 2am.
 
 ---
 
 ## 4. Escalate the hard pages
 
-Now the payoff — the pattern that's actually worth carrying out of this room.
+Now the payoff -- the pattern that's actually worth carrying out of this room.
 
 Your LiteParse pass is fast, local, and free, and it did a fine job on most of the
 corpus. But go look at the output for a page with a dense ruled table. Somewhere in
@@ -372,14 +324,14 @@ You have two bad options and one good one.
 from mangled tables, and nobody notices until someone reconciles a figure by hand.
 
 **Bad option 2:** run everything through LlamaParse's best tier. Correct, and expensive
-in a way that scales exactly wrong — you pay premium rates for thousands of pages that
+in a way that scales exactly wrong -- you pay premium rates for thousands of pages that
 say "This page intentionally left blank."
 
 **The good option:** let the cheap pass tell you where it struggled. Flag the pages that
 look table-heavy or came back low-confidence, and fan *only those* out to the cloud.
 
 A cheap pass over everything. An expensive pass over the 5% that earns it. This is the
-same instinct as Module 03's per-task resources — you gave the one memory-hungry task a
+same instinct as Module 03's per-task resources -- you gave the one memory-hungry task a
 bigger box instead of upsizing the whole cluster. Same move. Different resource. Here,
 the scarce resource is **credits**.
 
@@ -394,7 +346,7 @@ Your free plan has **10,000 credits per month**. Tiers:
 | Agentic | 10 |
 | Agentic Plus | 45 |
 
-Run Agentic over 50 PDFs at 10 pages each and that's 5,000 credits — **half your monthly
+Run Agentic over 50 PDFs at 10 pages each and that's 5,000 credits -- **half your monthly
 allowance, in one exercise, before the coffee break**. When the credits are gone, the
 free plan returns **402** and stops. There's no pay-as-you-go fallback to quietly catch
 you.
@@ -403,12 +355,12 @@ you.
 > you can afford to be curious. Fast is also genuinely the right call here: you're using
 > LlamaParse for a *targeted* second look at a handful of pages the cheap parser
 > fumbled, not as a document-understanding oracle. If Fast still mangles a page, *that*
-> is the evidence that justifies escalating that page again — and now you're spending 10
+> is the evidence that justifies escalating that page again -- and now you're spending 10
 > credits on one page instead of on ten thousand.
 
 There's a second limit that shapes the exercise: **20 requests per minute**, scoped to
 your org. You each have your own org, so nobody in the room is contending with anyone
-else — but you can absolutely contend with yourself. Fan 50 documents out at once and
+else -- but you can absolutely contend with yourself. Fan 50 documents out at once and
 your own map will trip your own rate limit and start collecting **429s**.
 
 **This is why the corpus is ~10 documents, not 50.** Ten fits comfortably under 20 RPM.
@@ -422,96 +374,64 @@ Two more things worth knowing:
   layers doing the same favor.
 - **`do_not_cache=True`** opts a document out of that server-side cache. You don't need
   it for IRS forms. You'd want it for anything you can't leave sitting on someone else's
-  infrastructure — and that decision belongs to whoever owns the document, not to the
+  infrastructure -- and that decision belongs to whoever owns the document, not to the
   person writing the pipeline.
 
 ### Getting the API key to the task
 
 `LLAMA_CLOUD_API_KEY` is already a Kiro secret, so it's an environment variable in your
-sandbox. But your task doesn't run in your sandbox — it runs in a pod on your devbox.
+sandbox. But your task doesn't run in your sandbox -- it runs in a pod on your devbox.
 The value has to get there deliberately.
 
 Flyte v2 has more than one mechanism for this, and per the steering file both `secrets`
 and `env_vars` live on `TaskEnvironment` (and on `.override`), not on `@env.task`. Don't
-take my word for which one is right for you — make Kiro find out.
+take my word for which one is right for you -- make Kiro find out.
 
-**Prompt:**
-
-> I need my parse tasks to be able to read `LLAMA_CLOUD_API_KEY`, which exists as an
-> environment variable in this sandbox but not inside the task pod on my devbox.
+> **Your task:** Get `LLAMA_CLOUD_API_KEY` from your sandbox into the task pod properly. Ask the Flyte MCP to compare `TaskEnvironment(secrets=...)` against `TaskEnvironment(env_vars=...)` and wire up the appropriate one for an API key. Do not hardcode it, do not print it.
 >
-> Ask the Flyte MCP server how to do this properly in Flyte v2. Compare `TaskEnvironment(secrets=...)`
-> against `TaskEnvironment(env_vars=...)`, tell me the actual difference between them and
-> which one is appropriate for an API key, and cite the docs. Then wire it up.
+> **Hints:** Think about the difference between secrets and plain env vars -- one is for sensitive values that shouldn't appear in logs or the UI. The key exists in your sandbox environment; you need a mechanism to get it into a pod that runs elsewhere.
 >
-> Do not hardcode the key, and do not print it.
+> **Stretch:** Ask Kiro what the actual difference is between `secrets` and `env_vars` on `TaskEnvironment` from a security perspective, and where each one is visible.
 
 ### The escalation itself
 
-**Prompt:**
+Here's the architecture: stage 1 is LiteParse over everything (already built, cached).
+Stage 2 identifies pages that look poorly parsed -- table-heavy, low-confidence,
+suspiciously little text for the page. Stage 3 fans **only the flagged pages** to
+LlamaParse with `flyte.map`.
 
-> Now add a selective escalation pass to the pipeline.
+The v2 SDK shape is roughly: `from llama_cloud import LlamaCloud`, then
+`client.files.create(file=..., purpose="parse")`, then
+`client.parsing.parse(file_id=..., tier="fast", version="latest", expand=["markdown"])`,
+and read `result.markdown.pages[0].markdown`. **Verify this against the current
+LlamaIndex documentation before relying on it** -- the exact method may have drifted.
+
+> **Your task:** Add a selective escalation pass to the pipeline. LiteParse runs over everything (stage 1, cached). A heuristic identifies poorly-parsed pages (stage 2). Only the flagged pages go to LlamaParse via `flyte.map` (stage 3). The parent returns a summary: pages handled by LiteParse, pages escalated, percentage, and approximate credit usage.
 >
-> **Stage 1 (already built):** LiteParse over every PDF in `corpus/`, in parallel, cached
-> on content.
+> **Hints:** Use `llama-cloud` SDK v2 (not the deprecated `llama-parse`). Pin `tier="fast"`. The rate limit is 20 req/min so you need concurrency control on `flyte.map`. Give the LlamaParse task retries with backoff (`flyte.RetryStrategy` + `flyte.Backoff`). A 402 means credits exhausted (don't retry); a 429 means slow down (retry). Cache this task on content too. Have Kiro explain its escalation heuristic before coding it.
 >
-> **Stage 2 (new):** from the LiteParse results, identify pages that look poorly parsed —
-> table-heavy, low-confidence, suspiciously little text for the page, dense runs of
-> numbers with no structure. Use whatever signal LiteParse actually exposes; check its
-> docs rather than inventing a confidence field. Explain your heuristic to me before you
-> code it.
->
-> **Stage 3 (new):** fan **only the flagged pages** out to LlamaParse with `flyte.map`.
->
-> Rules for stage 3, and these matter:
-> - Use the **`llama-cloud` SDK, version 2 or later** — API v2. The `llama-parse` and
->   `llama-cloud-services` SDKs hit end of maintenance on May 1, 2026 and will not work.
->   If you find yourself writing `from llama_parse import LlamaParse`, stop and check the
->   current docs.
-> - The v2 shape is roughly: `from llama_cloud import LlamaCloud`, then
->   `client.files.create(file=..., purpose="parse")`, then
->   `client.parsing.parse(file_id=..., tier="fast", version="latest", expand=["markdown"])`,
->   and read `result.markdown.pages[0].markdown`. **Verify this against the current
->   LlamaIndex documentation before relying on it** — there may be a lower-level
->   `client.parsing.create(...)` and the exact method may have drifted. Use what the docs
->   say today, not what I just told you.
-> - **Pin `tier="fast"`.** Do not use `parse_mode` or `parse_page_without_llm` — those are
->   v1 concepts that don't exist in v2.
-> - The rate limit is **20 requests/minute**. Make sure the fan-out can't exceed it —
->   ask the MCP about limiting `flyte.map` concurrency.
-> - Give the LlamaParse task **retries with backoff** (`flyte.RetryStrategy` with
->   `flyte.Backoff`). It's a network call to a rate-limited API. Remember that `retries`
->   goes on `@env.task` or `.override`, **not** on `TaskEnvironment`.
-> - A **402** means credits are exhausted and retrying will not help. A **429** means slow
->   down and retrying will. Handle those differently and tell me how you distinguished
->   them.
-> - Cache this task on content too. Cloud calls cost money; don't pay twice.
->
-> **Finally:** the parent task returns a summary — how many pages LiteParse handled, how
-> many were escalated, what percentage that is, and roughly how many credits stage 3 used.
->
-> Run it and give me the execution URL.
+> **Stretch:** Ask Kiro to walk you through the cost model: for 10,000 PDFs at 10 pages each, at your current escalation rate, compare credits consumed by this design vs. LlamaParse Fast over everything vs. Agentic over everything. Then ask where this design breaks -- what documents would fool the heuristic?
 
 ### ✅ Checkpoint: two tiers, one pipeline
 
 In the Flyte UI, one execution, and you can read the entire economic story off the graph:
 
-- **A wide stage 1** — every document, fanned out, LiteParse, free. On a re-run, most of
+- **A wide stage 1** -- every document, fanned out, LiteParse, free. On a re-run, most of
   it cached.
-- **A narrow stage 2** — a handful of flagged pages, and only those, going to LlamaParse.
+- **A narrow stage 2** -- a handful of flagged pages, and only those, going to LlamaParse.
 - The summary output tells you the escalation rate. Somewhere in the neighborhood of a
   few percent is the shape you're looking for.
 
 Click into one escalated page and compare its LlamaParse markdown against what LiteParse
 produced for the same page. **This is the moment the module is built around.** You should
-see an actual markdown table — pipes, headers, aligned columns, structure — where
+see an actual markdown table -- pipes, headers, aligned columns, structure -- where
 LiteParse gave you a flat run of numbers.
 
 Now look at the ratio in the graph one more time. That narrow branch next to that wide
 one *is* the lesson. You paid cloud prices for a sliver of your corpus and got cloud
 quality exactly where it mattered.
 
-> **If nothing escalated**, your heuristic is too strict — or, less likely, LiteParse
+> **If nothing escalated**, your heuristic is too strict -- or, less likely, LiteParse
 > genuinely handled everything. Ask Kiro to show you the flagging decision for the
 > worst-looking table page and explain why it passed.
 >
@@ -521,18 +441,13 @@ quality exactly where it mattered.
 
 ### 💡 Understand what just happened
 
-**Prompt:**
-
-> Walk me through the cost model of the pipeline I just built. For a corpus of 10,000
-> PDFs averaging 10 pages, at my current escalation rate: how many credits does this
-> design consume, versus running LlamaParse Fast over everything, versus Agentic over
-> everything? Show the arithmetic.
->
-> Then tell me where this design is *wrong*. What kinds of documents would make the
-> escalation heuristic fail badly? What breaks if LiteParse gets better next quarter, or
-> if LlamaParse's pricing changes? Which part of this would you actually not ship?
-
-Sit with that last answer for a minute. The pattern you built is good, and it is not
+Ask Kiro to walk you through the cost model of the pipeline you just built. For a corpus
+of 10,000 PDFs averaging 10 pages, at your current escalation rate: how many credits
+does this design consume, versus running LlamaParse Fast over everything, versus Agentic
+over everything? Have it show the arithmetic. Then ask where this design is *wrong* --
+what kinds of documents would make the escalation heuristic fail badly, what breaks if
+LiteParse gets better next quarter, and which part of this you'd actually not ship. Sit
+with that answer for a minute. The pattern you built is good, and it is not
 unconditionally good, and the difference between those two statements is most of
 engineering.
 
@@ -544,7 +459,7 @@ Pick one. There's more here than fits in the time, and that's fine.
 
 - **Make the heuristic earn its keep.** Escalate a random 10% *in addition* to the flagged
   pages, then compare LiteParse and LlamaParse output on the random sample. That tells you
-  your false-negative rate — how many bad pages are you shipping without knowing? A
+  your false-negative rate -- how many bad pages are you shipping without knowing? A
   heuristic with no measurement is a guess with good PR.
 
 - **Add a report.** Module 04 gave you `flyte.report`. Render a side-by-side of LiteParse
@@ -552,7 +467,7 @@ Pick one. There's more here than fits in the time, and that's fine.
   Suddenly the quality difference is something you can show someone instead of describe.
 
 - **Escalate the escalation.** Pages that come back bad even from `tier="fast"` get one
-  more hop to `tier="agentic"` — 10 credits, on maybe a dozen pages in the whole corpus.
+  more hop to `tier="agentic"` -- 10 credits, on maybe a dozen pages in the whole corpus.
   Three tiers, each one an order of magnitude more expensive and an order of magnitude
   rarer. That's the real production shape.
 
