@@ -1,0 +1,33 @@
+{
+  "id": "FEAT-001",
+  "type": "docs",
+  "description": "Rewrite early modules (01-05) from copy-paste prompts to Your task / Hints / Stretch format, and update README.md with a 'How to use this workshop' section explaining the new interaction model.",
+  "status": "in_progress",
+  "steps": [
+    "Update README.md: Add a 'How to use this workshop' section that explains the student workflow: read the module, write a prompt, verify in UI, ask why, move on. Reframe the existing 'How this workshop works' section to remove references to pasting prompts and instead describe constructing prompts from structured hints.",
+    "Rewrite modules/01-first-task.md: Replace the 'Build it' blockquote prompt with a Your task/Hints/Stretch blockquote. Move explanatory content that was AFTER the prompt to BEFORE the prompt section so students understand what to ask for. Keep the checkpoint exactly as-is. Transform the lightbulb section from 'Prompt Kiro:' with a blockquote into an instruction to ask Kiro to explain (framed as 'Ask Kiro to explain...'). Keep all technical warnings (podman, build time, etc.) and explanatory prose. Keep the 'Try this' section.",
+    "Rewrite modules/02-fan-out.md: Replace both the 'Build it' prompt and the 'Now make it bigger' prompt with Your task/Hints/Stretch format. Transform the lightbulb 'Prompt Kiro:' sections into 'Ask Kiro to explain...' framing. Keep all checkpoints exactly as-is. Keep the closing 'The part worth remembering' section.",
+    "Rewrite modules/03-resilience.md: Replace the 'Retries' prompt and the 'Resources' prompt with Your task/Hints/Stretch format. Transform the lightbulb section. Keep all checkpoints and technical warnings (counter trick, retries placement, devbox sizing) exactly as they are.",
+    "Rewrite modules/04-reports.md: Replace the 'Build it' prompt and 'Make it live' prompt with Your task/Hints/Stretch format. Transform the lightbulb section. Keep the checkpoint and all explanatory text about reports vs execution view.",
+    "Rewrite modules/05-deploy.md: Replace the 'Build it' prompt with Your task/Hints/Stretch format. Transform the lightbulb section. Keep checkpoint, 'Worth knowing' section, and the arc summary."
+  ],
+  "acceptance_criteria": [
+    "README.md contains a clear 'How to use this workshop' section explaining: read module, write prompt from hints, verify in UI, ask Kiro why, move on",
+    "README.md no longer says students 'paste' prompts - instead describes constructing prompts",
+    "Each of modules 01-05 has all blockquote prompts replaced with the Your task / Hints / Stretch blockquote format",
+    "All checkpoints (lines starting with checkmark emoji) are preserved exactly as they were",
+    "All technical warnings (warning, info emojis) are preserved exactly as they were",
+    "Lightbulb sections are reframed as 'Ask Kiro to explain...' rather than 'Prompt Kiro:' with a blockquote to paste",
+    "Explanatory content that helps students understand what to build is positioned BEFORE the task section",
+    "Module 01 is the most guided (generous hints), module 05 requires more independent thinking",
+    "The 'Push it further' and closing sections are untouched"
+  ],
+  "verification": [
+    "Read each modified file and confirm the structural changes match the acceptance criteria",
+    "Grep for 'Prompt Kiro' in modules 01-05 to confirm none remain",
+    "Grep for '**Your task:**' in modules 01-05 to confirm new format is present",
+    "Confirm checkpoints are unchanged by checking emoji presence"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

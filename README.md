@@ -16,30 +16,43 @@ an agent end to end — and you'll have written almost none of it by hand.
 
 **You don't type code. You direct an agent that types code.**
 
-Every module hands you a **prompt** to paste into Kiro. Kiro writes the pipeline and
-runs it against your devbox. Your job is to *decide what to build*, then *prove it
-actually worked*.
+Every module gives you a **task** to accomplish, **hints** to guide your prompt, and a
+**stretch** question to deepen your understanding. Your job is to read the context,
+construct a prompt that gets Kiro to build the right thing, then *prove it actually
+worked* in the Flyte UI.
 
 > **The one rule that makes this work:** Kiro's output will differ every single time,
 > for every person in the room. That's fine and expected. We never check that your
-> code looks a certain way. We check that **the right thing happened** — a run
+> code looks a certain way. We check that **the right thing happened** -- a run
 > succeeded, work ran in parallel, a failure recovered. Each module ends with a
 > **Checkpoint** you verify yourself.
+
+### How to use this workshop
+
+Your workflow for every section follows the same loop:
+
+1. **Read the module.** Each section gives you context about *what* you are building and *why* it matters. Read it before you prompt -- it tells you what to ask for.
+2. **Write your own prompt.** The task box tells you what to accomplish. The hints tell you what concepts matter. You put those together into a prompt for Kiro -- there is no single right answer.
+3. **Verify in the Flyte UI.** Every section has a checkpoint. Go look at the execution in the Flyte UI and confirm the right thing happened. Do not take Kiro's word for it.
+4. **Ask why.** The stretch question is there to make you curious. Ask Kiro to explain the thing you just built so you understand it, not just so you saw it work.
+5. **Move on.** Once the checkpoint is green, move to the next section.
+
+The modules get progressively less guided. Module 01 gives you generous hints; by Module 05 you are expected to figure out more on your own.
 
 ### Two tabs, two jobs
 
 | Tab | What it is | What you do there |
 |---|---|---|
-| **Kiro Web** — [app.kiro.dev](https://app.kiro.dev) | The agent. Chat, plan, build. | Paste prompts. Read what it wrote. Ask it "why?" |
-| **Flyte UI** — `https://<your-domain>/v2` | Your devbox. Real executions. | **Watch things run.** This is where you verify. |
+| **Kiro Web** -- [app.kiro.dev](https://app.kiro.dev) | The agent. Chat, plan, build. | Write prompts. Read what it wrote. Ask it "why?" |
+| **Flyte UI** -- `https://<your-domain>/v2` | Your devbox. Real executions. | **Watch things run.** This is where you verify. |
 
-**Keep the Flyte UI open all day.** Kiro Web has no terminal — you will never watch a
+**Keep the Flyte UI open all day.** Kiro Web has no terminal -- you will never watch a
 log scroll by. The Flyte UI *is* your terminal, and it's a much better one: every
 task, every retry, every parallel branch, every report, rendered live.
 
 That inversion is the whole point. You direct, the agent executes, and the cluster
 shows you the truth. When Kiro claims something worked, **don't take its word for
-it — go look.** Checking the agent's homework is a skill worth practicing on a day
+it -- go look.** Checking the agent's homework is a skill worth practicing on a day
 when the stakes are zero.
 
 ---

@@ -17,12 +17,16 @@ each input becomes **its own tracked, retryable unit**.
 
 ## Build it
 
-**Prompt Kiro:**
+You already have a greeting task from Module 01. Now you need to run it across many
+inputs at once. In Flyte v2, `flyte.map` takes a task and a list of inputs and fans them
+out -- each one becomes its own tracked action with its own inputs, outputs, logs, and
+retry lifecycle.
 
-> Using the Flyte MCP, add a task to `work/hello.py` that uses `flyte.map` to run my
-> greeting task across a list of at least 20 names, in parallel, returning all the
-> greetings. Confirm the exact `flyte.map` signature with the MCP first. Then run it and
-> give me the execution URL.
+> **Your task:** Make your greeting task from `work/hello.py` run across at least 20 names in parallel using `flyte.map`, returning all the greetings. Run it and get the execution URL.
+>
+> **Hints:** You need the `flyte.map` function. Have Kiro confirm the exact signature with the MCP -- it takes a task and a list. The key insight is that each input becomes its own independently tracked unit, not just a loop iteration.
+>
+> **Stretch:** Ask Kiro to explain why `flyte.map` is better than a plain Python `for` loop. What do you get -- scaling, retries, visibility -- that the loop would not give you?
 
 ---
 
@@ -42,10 +46,9 @@ It can be retried on its own. **That's the thing to notice.** Not "it went faste
 
 ## 💡 Understand what just happened
 
-**Prompt Kiro:**
-
-> Using the Flyte MCP, explain why `flyte.map` is better here than a plain Python `for`
-> loop. What do I get — scaling, retries, visibility — that the loop wouldn't give me?
+Ask Kiro to explain (using the Flyte MCP) what makes `flyte.map` different from
+running a task in a loop. What happens when input #14 fails? How does that compare to
+a `for` loop where input #14 throws an exception?
 
 The answer to listen for: in a loop, one exception loses everything, and you learn about
 it at the end. With `map`, input #14 failing is *input #14 failing* — it retries on its
@@ -58,13 +61,15 @@ That's the difference between a script and a pipeline.
 
 ## Now make it bigger
 
-**Prompt Kiro:**
+Now you need to scale up and learn about concurrency control. When you fan out across
+hundreds of inputs that all hit the same downstream resource, you need to limit how many
+run at once -- otherwise you get a wall of rate-limit errors.
 
-> Now fan it out across 200 inputs, but limit how many run at once. Ask the MCP how to
-> set concurrency on `flyte.map`.
-
-Watch the UI as it runs. You'll see actions moving through states in waves as slots free
-up.
+> **Your task:** Fan the greeting task out across 200 inputs, but cap how many run concurrently. Watch the UI as actions move through states in waves.
+>
+> **Hints:** Ask the MCP how to set concurrency on `flyte.map`. There is a parameter that limits how many map actions can execute at the same time.
+>
+> **Stretch:** Ask Kiro why concurrency caps matter when fanning out over a rate-limited API. What happens in [Module 10](10-llamaindex.md) without one?
 
 **Why cap it?** Because 200 pods that all hit the same rate-limited API at once will get
 you a face full of `429`s — which is exactly what happens in [Module 10](10-llamaindex.md)
