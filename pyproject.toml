@@ -1,0 +1,32 @@
+[project]
+name = "aws-partner-workshop"
+version = "0.0.0"
+description = "AWS Partner Workshop — agentic pipelines on Flyte, driven from Kiro Web"
+readme = "README.md"
+requires-python = ">=3.10"
+
+# Kept deliberately thin. These are what the *sandbox* needs in order to submit work to
+# the devbox — not what the tasks themselves need at runtime.
+#
+# Task dependencies are declared in Python, on the image:
+#
+#   flyte.Image.from_debian_base().with_pip_packages("liteparse", ...)
+#
+# Adding a package HERE does not put it in a task. The task runs in the image it declares,
+# built in this sandbox and pushed to your ECR. This file is for the client side only.
+dependencies = [
+  "flyte>=2.5.9",
+]
+
+[dependency-groups]
+# Only needed if you want to run pieces locally in the sandbox (`flyte run --local`)
+# rather than on the devbox. Not required for any module.
+local = [
+  "liteparse>=2.6",
+  "llama-cloud>=2.11",
+  "arize-phoenix-otel>=0.16",
+  "openinference-instrumentation-anthropic>=1.0",
+]
+
+[tool.uv]
+package = false
