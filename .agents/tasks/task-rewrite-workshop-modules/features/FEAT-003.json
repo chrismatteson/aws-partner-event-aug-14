@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "docs",
   "description": "Address three review issues: (1) Add verification prose back to Module 11 Checkpoint 2 Understand section, (2) Differentiate Stretch/Understand overlap in Modules 10-11, (3) Normalize em-dashes to -- across all modified files.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Module 11: Add 2-3 verification sentences to the 'Understand what just happened' section after Checkpoint 2, covering register() env var reading (PHOENIX_* vs OTEL_* priority), auto_instrument package scan mechanism, and the no-spans-no-error failure mode.",
     "Modules 10-11: Where Stretch questions overlap with the immediately following Understand section, add bridging text or differentiate the angle so students don't feel they're being asked twice.",
@@ -19,5 +19,5 @@
     "Read Modules 10-11 Stretch/Understand pairs to confirm differentiation"
   ],
   "blocked_reason": null,
-  "findings": null
+  "findings": "All three review issues addressed. (1) Module 11 Understand section after Checkpoint 2 now contains a structured checklist of what a complete answer to register()/auto_instrument/batch=False looks like, including PHOENIX_* vs OTEL_* priority, the package-scan mechanism, and the silence-on-missing-package failure mode. (2) Five Stretch/Understand overlaps fixed across Modules 10-11: section 1 (code bundle), section 2 (pod count/failure isolation), section 3 (cache versioning), section 4 (cost model) in Module 10, and sections 2 and 5 in Module 11. Each now either acknowledges the Stretch and pushes to a deeper angle, or provides verification criteria for the Stretch answer. (3) All em-dashes and en-dashes in the 9 target files replaced with --. One en-dash in 99-now-you-drive.md price range ($10-80) also normalized. Partner stubs (20, 21, 22) not touched per contribution requirements."
 }
