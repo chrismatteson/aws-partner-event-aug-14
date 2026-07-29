@@ -10,23 +10,26 @@ architecture, and they're cheap to settle now and expensive to discover on Augus
 
 ## The architecture, and why
 
-Attendees never install anything. Two browser tabs:
+Attendees never install anything, and type one value (a role ARN). Browser tabs only:
 
 ```
+                        sandbox IAM role (assumed by q.amazonaws.com)
+                                 │  short-lived creds
+                                 ▼
    Kiro Web  ──── HTTPS + Cognito M2M ────▶  devbox (EC2, k3s)  ──▶  task pods
   (the agent,      (ExternalCommand auth)      in the attendee's         │
-   no terminal,                                   AWS account            │
-   podman+shim)                                        ▲                 │
-       │                                               │                 ▼
+   no terminal,          ▲                        AWS account            │
+   podman+shim)          │ config from SSM             ▲                 │
+       │                 └──────── SSM ◀── provisioning │                 ▼
        └──── podman push ───▶  ECR ──── pull ──────────┴──▶   Bedrock (instance role)
-                          (same account,                       LlamaCloud (API key)
+                          (same account,                       LlamaCloud (key from SSM)
                            create-on-push)                     Phoenix (in-cluster app)
 
                                           Flyte UI ────▶ the attendee's
                                                           observation surface
 ```
 
-**Three decisions worth knowing the reasons for:**
+**Decisions worth knowing the reasons for:**
 
 **1. Devbox runs on EC2, not in Kiro's sandbox.** `flyte start devbox` hardcodes
 `--privileged` Docker running k3s, with no opt-out. Kiro's sandbox has podman, not a
@@ -83,6 +86,24 @@ modes (shim, ECR auth, build time) in Module 01 at 09:45 for 40 people at once.
 > off-the-shelf servers like Phoenix, pin the published image with `from_base` and set
 > `command=`. Rule of thumb we teach: **build when the image is yours, pin when it's
 > someone else's.**
+
+**4c. Kiro setup is one pasted value, because the AWS side is provisioned.** You can't
+CloudFormation Kiro itself (no resource type, no admin-push for agent config — verified).
+But [`provisioning/kiro-sandbox.yaml`](provisioning/) bakes a **sandbox IAM role** and the
+per-attendee config in **SSM**, so the attendee pastes only the role ARN and `bootstrap.sh`
+fetches the rest. This collapsed the card from eight secrets to one. It leans on a
+July-2026 Preview feature; **red test 6b** gates it, with the typed-secrets flow in git
+history as the fallback. The irreducible manual floor: enable Kiro (admin), connect GitHub,
+two allow-list entries, one MCP server, paste the ARN.
+
+**4d. The whole workshop is one Kiro task.** Decided. The sandbox spins up once, bootstrap
+runs once, `work/` persists in that sandbox all day (it stays gitignored — no need to
+commit scratch). Simpler than task-per-module, and fine because the day is a few hours, not
+eight. The cost: **the entire day rides on that one sandbox staying alive** — which makes
+sandbox longevity (red test 9) load-bearing rather than nice-to-know. If a sandbox recycles
+mid-session, that attendee re-runs `bootstrap.sh` (cheap now — no secrets to retype) and
+loses only their uncommitted `work/`. Module 99 tells attendees to force-add anything worth
+keeping before they close the tab.
 
 **5. Phoenix runs as a Flyte app on each attendee's devbox.** Not Phoenix Cloud, not
 Docker. **Empirically verified** on a real devbox: deployed, span sent from a task pod,
@@ -156,9 +177,10 @@ Also needed on the instance role: **`bedrock-mantle:CreateInference`** (note: *n
 `aws-marketplace:Subscribe`/`Unsubscribe`/`ViewSubscriptions`. And `AWS_REGION=us-east-1`
 in the task env — the client won't infer it.
 
-**If it fails and can't be fixed:** fall back to an `ANTHROPIC_API_KEY` on the card
-(reinstate the seventh row in `setup/00-kiro-web.md` and `api.anthropic.com` in the
-allow-list). Module 11 would change by two lines. Know this before the day.
+**If it fails and can't be fixed:** put `ANTHROPIC_API_KEY` in SSM as
+`/workshop/anthropic-api-key`, have `bootstrap.sh` export it, add `api.anthropic.com` to
+the allow-list, and Module 11 changes by two lines (`AnthropicBedrockMantle()` →
+`Anthropic()`). Know this before the day.
 
 ### 🔴 3. Bedrock quota in a freshly provisioned account must be non-zero
 
@@ -265,6 +287,31 @@ the free tier), and is in `us-east-1`** (the only preview region). This is a pro
 dependency with no technical workaround, and it's the one that ends the workshop at
 minute five if it's wrong.
 
+### 🔴 6b. The sandbox IAM role → SSM path actually works
+
+**The linchpin of the streamlined setup, and a three-week-old Preview feature.** The entire
+"one value on the card" design assumes: a Kiro Web sandbox can assume the role we bake, and
+with those creds `bootstrap.sh` can read `/workshop/*` from SSM. Both are plausible — the
+trust principal (`q.amazonaws.com`), actions, and UI location are
+[documented](https://kiro.dev/docs/web/sandbox/environment-configuration/) and the SSM read
+is vanilla IAM — but the role feature shipped July 1 and neither has been run against our
+template.
+
+Two things could bite: (a) Kiro may **reject the role on save** if it validates a trust
+policy shape we don't match — specifically we *omit* the `sts:SourceIdentity` value
+condition its example includes; if the validator requires it, we can't pre-bake and fall
+back to typed secrets; (b) the assumed-role creds must reach the **standard credential
+chain** so `aws`/`boto3`/`podman` pick them up with no extra config — documented behavior,
+unverified here.
+
+**Test:** in a real Kiro Web sandbox, paste a provisioned role ARN, save (does it
+validate?), start a task, run `aws sts get-caller-identity` and `aws ssm get-parameter
+--name /workshop/flyte-domain`. Then the full `bootstrap.sh`.
+
+**If it fails:** revert `setup/00-kiro-web.md` and `bootstrap.sh` to the typed-secrets flow
+(it's in git history) — eight secrets on a card, but proven. Decide this **at T-3 weeks**,
+because it changes the card, the provisioning, and the setup doc.
+
 ### 🟠 7. `ExternalCommand` auth against the ALB
 
 `scripts/flyte-token.sh` requests scope `https://$FLYTE_DOMAIN/access`. The ALB's
@@ -285,14 +332,22 @@ Unverified: whether a custom allow-list **adds to** the "Common dependencies" ti
 the tier) and the Cognito call (needs the custom entry) work in one task. **If it
 replaces**, the setup doc needs the full list spelled out.
 
-### 🟠 9. Sandbox longevity
+### 🔴 9. Sandbox longevity
 
-Kiro Web documents **no max task duration and no idle timeout** (only 90-day session data
-retention). A full-day workshop leans on a sandbox living for hours across breaks.
+**Load-bearing, because the whole workshop is one Kiro task (decision 4d).** The single
+sandbox must survive the entire session — a few hours, across at least one break. Kiro Web
+documents **no max task duration and no idle timeout** (only 90-day session data
+retention), so this is an unverified property the whole day rides on.
 
-**Test:** start a task, leave it an hour, come back, run something. Also confirm what
-happens after lunch — if sandboxes recycle, secrets re-inject on start and attendees may
-need to re-run `bootstrap.sh`. Cheap to handle if we know; confusing if we don't.
+**Test:** start a task, leave it idle through a break's worth of time, come back, run
+something. Confirm the sandbox is still alive and the shim / ECR login / `.flyte/` state
+survived.
+
+**If sandboxes recycle mid-session:** an attendee re-runs `bootstrap.sh` (cheap now — it
+fetches from SSM, no secrets to retype) and loses only uncommitted `work/`. Tell
+facilitators this in advance so a recycle reads as a 60-second recovery, not a crisis. If
+they recycle *often*, reconsider task-per-module — but that's a bigger change; verify
+first.
 
 ### 🟠 10. The Phoenix app on *our* devbox, not a local one
 
@@ -320,9 +375,16 @@ Both are one command away: `kubectl get cm flyte-binary-config -n flyte`.
 - [ ] **Red test 3: check applied Bedrock quota** in a sample provisioned account. If it's
       0, open the AWS Support case **today** — it's the only item here with a multi-day fix.
 - [ ] **Confirm Kiro seats with AWS** (red test 6). Pro+, us-east-1, one per attendee.
+- [ ] **Red test 6b: the sandbox role → SSM path.** Paste a provisioned ARN into a real
+      Kiro sandbox, confirm it validates on save, and that `bootstrap.sh` reads SSM with it.
+      This is what the one-value card rests on — if it fails, fall back to typed secrets,
+      and that decision has to be made now, not at T-1 week.
 - [ ] Run red tests 1, 4, 5, **5b** against one throwaway Prod-mode devbox. **These gate
       everything.** 5b (build → push → pull) is the newest and least proven — and it now
       sits in Module 01, so if it's shaky the whole day is shaky. **Time a cold build.**
+- [ ] **Red test 9: sandbox longevity.** The whole day is one Kiro task, so the sandbox
+      must survive the session across a break. Leave one idle, come back, confirm it lives
+      and its state survived. If it recycles, brief facilitators on the re-run recovery.
 - [ ] Ask AWS whether promo credits cover Bedrock 3P model usage.
 - [ ] Decide the DNS scheme. `student01..student40.<zone>` in one Route 53 zone is
       simplest; the stack finds the hosted zone itself, so there's no zone ID to plumb.
@@ -354,9 +416,15 @@ Both are one command away: `kubectl get cm flyte-binary-config -n flyte`.
 - [ ] **Create an ECR repository creation template** in each account with
       `appliedFor = CREATE_ON_PUSH`. Without it, attendees can only push images named
       `flyte`, and any agent that picks a different name fails confusingly.
-- [ ] **Create the ECR-push IAM user** per account (policy above) and capture the keys.
-- [ ] **Script the card generation** — stack outputs + `describe-user-pool-client` for the
-      Cognito secret + the IAM keys. Eight values × 40 people is a typo farm by hand.
+- [ ] **Deploy `provisioning/kiro-sandbox.yaml`** into each account (after the devbox
+      stack), then the two `put-parameter --type SecureString` calls. See
+      [provisioning/README.md](provisioning/README.md). This creates the sandbox role +
+      SSM config — it's what replaces the eight-value card with one role ARN.
+- [ ] **Capture each account's role ARN** (stack output `KiroSandboxRoleArn`). That's the
+      whole card. One value × 40, scriptable, nothing secret transcribed by hand.
+- [ ] **Enable Kiro Web org-wide** (Identity Center → Kiro Settings → Autonomous agents)
+      and **install the Kiro GitHub App** on the org once. Both are one-time admin actions;
+      neither is CFN-able.
 - [ ] **Bake the IMDS hop limit** (whatever red test 2 landed on) into the launch template
       / CFN `MetadataOptions.HttpPutResponseHopLimit`.
 - [ ] **Add Bedrock permissions to the instance role**: `bedrock-mantle:CreateInference`
@@ -368,7 +436,8 @@ Both are one command away: `kubectl get cm flyte-binary-config -n flyte`.
 - [ ] Confirm `AWS_REGION=us-east-1` reaches task pods.
 - [ ] Set `AutoStop=No`, or raise `IdleThresholdMinutes` well past a lunch break. **The
       2-minute wake is fine once and infuriating four times.** Consider a pre-warm.
-- [ ] Generate the **attendee cards** (seven values each — see below).
+- [ ] Print the **handout**: sign-in identity + the two fixed allow-list domains + this
+      account's one role ARN.
 - [ ] Pre-create Cognito users if attendees need Flyte UI browser login.
 - [ ] Confirm LlamaCloud keys: own key per attendee (own org ⇒ own 20 RPM ⇒ no
       contention). Do **not** share one key across the room; you'd serialize 40 people
@@ -377,83 +446,64 @@ Both are one command away: `kubectl get cm flyte-binary-config -n flyte`.
 ### Day of
 - [ ] Pre-warm every devbox in the morning. Nobody's first experience should be a
       2-minute wait.
-- [ ] Facilitators: know the four failure modes in `setup/00-kiro-web.md` cold. Nearly
-      every support question will be one of them.
+- [ ] Facilitators: know the setup failure modes cold — the sandbox role not saved / not
+      picked up (needs a fresh task), the two allow-list domains missing, the MCP server
+      not added (Checkpoint B), and a sleeping devbox (2-min wake). Nearly every support
+      question is one of these.
 - [ ] Check <https://llamaindex.statuspage.io/> before Module 10.
 
 ---
 
 ## The attendee card
 
-Eight values. Everything else is in the repo or derived.
+**One value.**
 
 ```
-  FLYTE_DOMAIN           student07.workshop.union.ai
-  COGNITO_DOMAIN         https://flyte-devbox-<acct>.auth.us-east-1.amazoncognito.com
-  COGNITO_CLIENT_ID      <CognitoM2MClientId stack output>
-  COGNITO_CLIENT_SECRET  <secret on that Cognito client>
-  AWS_ACCESS_KEY_ID      <ECR-push-only IAM user>
-  AWS_SECRET_ACCESS_KEY  <...>
-  AWS_REGION             us-east-1
-  LLAMA_CLOUD_API_KEY    llx-...
+  KiroSandboxRoleArn   arn:aws:iam::<account>:role/kiro-workshop-<account>
 ```
+
+Plus the two things that are the same for everyone and go on the printed handout, not a
+per-attendee card: the Kiro sign-in identity, and the allow-list domains
+(`.workshop.<zone>, .amazoncognito.com`).
+
+Everything else the sandbox reads for itself. The role (paste once, Settings → Agent →
+Sandbox → IAM Role) gives it AWS creds; `bootstrap.sh` uses those to pull
+`FLYTE_DOMAIN`, the Cognito details, and the LlamaCloud key from SSM. No secrets typed,
+no keys to transcribe, no eight-value card to get wrong at 09:15.
 
 **Not on the card, deliberately:**
 - **No Claude key** — Bedrock resolves credentials from the instance role. **If red test 2
-  (IMDS) fails**, add `ANTHROPIC_API_KEY` back, restore `api.anthropic.com` to the
-  allow-list, and Module 11 swaps `AnthropicBedrockMantle(...)` for `Anthropic()`.
-- **No `ECR_REGISTRY`** — `bootstrap.sh` derives it from `sts get-caller-identity` +
-  `AWS_REGION`. One less thing to mistype.
-- **No `WORKSHOP_IMAGE`** — the prebuilt-image fallback. Hand it out only if builds break.
+  (IMDS) fails**, put `ANTHROPIC_API_KEY` in SSM as a fallback, restore `api.anthropic.com`
+  to the allow-list, and Module 11 swaps `AnthropicBedrockMantle(...)` for `Anthropic()`.
+- **No AWS keys** — the sandbox IAM role replaced them. Short-lived, no static keys in a
+  prompt-injectable agent.
+- **No `WORKSHOP_IMAGE`** — the prebuilt-image fallback. Put it in SSM and point the
+  steering at it only if builds break.
 
-### On the M2M credentials
+### How the one value is produced
 
-**Provision the client, not a token.** A Cognito access token lives ~1 hour; a full-day
-workshop would strand everyone after the first session. `scripts/flyte-token.sh` mints a
-fresh token per CLI call from the client credentials, so it never expires out from under
-anyone. That's why the card carries a client id + secret rather than a token.
+The whole per-account provisioning — the role, the SSM params — lives in
+[`provisioning/`](provisioning/) and its [README](provisioning/README.md) has the deploy
+script. In short: the devbox stack already creates the Cognito M2M client and knows the
+Flyte domain; the provisioning template turns those (plus the client secret, fetched via
+`describe-user-pool-client`, and the Llama key) into SSM parameters and emits one role
+ARN. Script it across 40 accounts; each emits its ARN.
 
-The devbox stack already creates the M2M client (`auth.CreateM2MClient: true`) and outputs
-`CognitoM2MClientId`. The **secret** is not a stack output — pull it separately:
+**Why M2M, still:** a Cognito access token lives ~1 hour and would strand everyone after
+the first session. `scripts/flyte-token.sh` mints a fresh token per CLI call from the
+client credentials it reads out of `.flyte/workshop.env` (which bootstrap wrote from SSM),
+so nothing expires mid-day.
 
-```bash
-aws cloudformation describe-stacks --stack-name <stack> \
-  --query 'Stacks[0].Outputs' --output table          # FLYTE_DOMAIN, CognitoM2MClientId, pool id
+### The security trade in one place
 
-aws cognito-idp describe-user-pool-client \
-  --user-pool-id <CognitoUserPoolId> \
-  --client-id <CognitoM2MClientId> \
-  --query 'UserPoolClient.ClientSecret' --output text  # COGNITO_CLIENT_SECRET
-```
-
-Worth scripting across all 40 accounts to emit the cards — hand-transcribing eight values
-× 40 people is exactly where a typo'd secret turns into a 20-minute debugging session at
-09:15.
-
-### The ECR-push IAM user
-
-Least privilege, scoped to one account that gets destroyed:
-
-```json
-{"Version":"2012-10-17","Statement":[{
-  "Effect":"Allow",
-  "Action":["ecr:GetAuthorizationToken","ecr:BatchCheckLayerAvailability",
-            "ecr:InitiateLayerUpload","ecr:UploadLayerPart","ecr:CompleteLayerUpload",
-            "ecr:PutImage","ecr:CreateRepository","sts:GetCallerIdentity"],
-  "Resource":"*"}]}
-```
-
-`ecr:CreateRepository` is needed for create-on-push. **Kiro's IAM role assumption
-(`q.amazonaws.com` + `sts:SourceIdentity`) is the better mechanism** — short-lived,
-auto-refreshed, no static keys in a prompt-injectable agent — but it needs per-attendee
-trust policy config keyed to each Kiro user id. Static keys are the pragmatic call for a
-one-day throwaway account; use the role if provisioning can generate the trust policies.
-
-> **On handing 40 people API keys in a prompt-injectable agent:** Kiro's docs say plainly
-> that the agent may exfiltrate secrets through code, logs, or requests. That's why
-> `setup/00-kiro-web.md` insists on the allow-list over "Open internet," and why none of
-> these should be credentials to anything real. Scope the Anthropic and LlamaCloud keys to
-> throwaway orgs with hard spend caps, and **revoke everything after the event.**
+The role is assumable only by Kiro's service principal (`q.amazonaws.com`) and grants only
+**SSM read on `/workshop/*` + ECR push** in a throwaway account. Kiro's reference trust
+policy additionally pins the session to a specific Kiro user id; we omit that because
+attendees have no id until they log in, so the role must be pre-bakeable. Consequence: any
+Kiro user who learned an ARN could assume it — into an account that holds only a throwaway
+devbox and is deleted after the event. The hardening (pin `sts:SourceIdentity` per
+attendee) is documented in the template comment; it's not worth the per-attendee friction
+here. **Revoke/delete everything after the event regardless.**
 
 ---
 

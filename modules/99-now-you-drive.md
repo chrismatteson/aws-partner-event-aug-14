@@ -56,10 +56,17 @@ this stops being a demo you watched and starts being something you know.
 
 ## Before you go
 
-Your devbox auto-stops when idle, so it costs almost nothing sitting there. **Your AWS
-account gets torn down after the event** — if you built something you want, push it to
-your fork now. `work/` is gitignored, so ask Kiro to open a PR with anything worth
-keeping.
+Everything you did today lived in one Kiro session, and **that session — and your whole
+AWS account — gets torn down after the event.** So if you built something you want to
+keep, get it out now.
+
+Your scratch code is in `work/`, which is gitignored so it stayed out of your way all day.
+That means a normal PR won't include it. To keep something, tell Kiro exactly what:
+
+> Open a pull request to my fork that force-adds `work/the_file_i_want.py` (it's
+> gitignored — use `git add -f`), so I don't lose it when this session ends.
+
+Grab it before you close the tab; there's no getting it back afterward.
 
 ## Taking it home
 

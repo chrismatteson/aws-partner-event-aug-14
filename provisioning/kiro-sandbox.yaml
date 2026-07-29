@@ -1,0 +1,169 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Per-attendee Kiro Web scaffolding for the AWS Partner workshop. Creates the one IAM
+  role a Kiro Web sandbox assumes, plus the SSM parameters bootstrap.sh reads at runtime.
+  Deploy this into each attendee account AFTER the devbox stack, feeding it that stack's
+  outputs. The single stack output, KiroSandboxRoleArn, is the ONLY value an attendee
+  types into Kiro (Settings > Agent > Sandbox > IAM Role).
+
+# ---------------------------------------------------------------------------------------
+# Why this exists
+# ---------------------------------------------------------------------------------------
+# Kiro Web cannot be provisioned — there is no AWS::Kiro resource and no admin-push for
+# agent config. But everything the sandbox NEEDS can be provisioned: an IAM role it
+# assumes (short-lived creds, no static keys in a prompt-injectable agent) and the
+# per-attendee config it reads from SSM. With both in place, the attendee's entire Kiro
+# setup is: connect GitHub, set two fixed allow-list entries, add one MCP server, and
+# paste this role's ARN. No secrets typed.
+#
+# The role's credentials flow to the aws CLI / boto3 / podman inside the sandbox via the
+# standard AWS credential chain, so bootstrap.sh just uses them — it never calls
+# AssumeRole itself.
+
+Parameters:
+  FlyteDomain:
+    Type: String
+    Description: The devbox hostname, e.g. student07.workshop.union.ai (devbox stack output).
+  CognitoDomain:
+    Type: String
+    Description: >
+      Cognito hosted-UI base URL, e.g.
+      https://flyte-devbox-1234.auth.us-east-1.amazoncognito.com
+  CognitoClientId:
+    Type: String
+    Description: The M2M client id (devbox stack output CognitoM2MClientId).
+  ParameterPrefix:
+    Type: String
+    Default: /workshop
+    Description: SSM path prefix. bootstrap.sh reads from here; keep in sync if you change it.
+
+# The two SECRET params (cognito-client-secret, llama-cloud-api-key) are not inputs here:
+# CloudFormation can't create SecureString parameters, so the deploy script writes them
+# with `aws ssm put-parameter --type SecureString` after this stack completes. See
+# provisioning/README.md. This template owns the plain params + the role; secrets are the
+# script's job. Keeping them out avoids passing secrets through CFN parameters at all.
+
+Resources:
+  # -------------------------------------------------------------------------------------
+  # SSM parameters — the per-attendee config, read at runtime by bootstrap.sh.
+  # Nothing here is typed into Kiro. The role below is what grants read access.
+  # -------------------------------------------------------------------------------------
+  FlyteDomainParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${ParameterPrefix}/flyte-domain"
+      Type: String
+      Value: !Ref FlyteDomain
+
+  CognitoDomainParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${ParameterPrefix}/cognito-domain"
+      Type: String
+      Value: !Ref CognitoDomain
+
+  CognitoClientIdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${ParameterPrefix}/cognito-client-id"
+      Type: String
+      Value: !Ref CognitoClientId
+
+  # SecureString params can't be created from a plain CFN property, so these two are set
+  # out-of-band after deploy (see provisioning/README.md). We declare their NAMES here as
+  # String placeholders would leak the secret into the template — instead the role policy
+  # below grants read on the whole prefix, and the deploy script writes the SecureStrings.
+  #
+  # NOTE: AWS::SSM::Parameter does not support SecureString in CloudFormation. The deploy
+  # script (README) runs `aws ssm put-parameter --type SecureString` for the secret ones.
+
+  # -------------------------------------------------------------------------------------
+  # The role the Kiro sandbox assumes.
+  # -------------------------------------------------------------------------------------
+  KiroSandboxRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "kiro-workshop-${AWS::AccountId}"
+      Description: Assumed by this attendee's Kiro Web sandbox. ECR push + workshop SSM read only.
+      MaxSessionDuration: 43200  # 12h — spans the workshop day so creds don't expire mid-session.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # Principal is Kiro's service (q.amazonaws.com), verified against
+          # kiro.dev/docs/web/sandbox/environment-configuration. Only Kiro can assume this.
+          #
+          # Kiro's own example additionally pins sts:SourceIdentity to a specific Kiro user
+          # id — which we CANNOT do at provisioning time, because attendees haven't logged
+          # in yet and have no user id to bake in. We omit that value-condition so the role
+          # is pre-bakeable. Consequence: any Kiro user who knew this ARN could point their
+          # sandbox at it. Acceptable here — the account is throwaway, the role grants only
+          # ECR push and workshop SSM read within THIS account, and the account is destroyed
+          # after the event. To harden for a non-throwaway setting, add back
+          # `Condition: {StringEquals: {"sts:SourceIdentity": "<kiro-user-id>"}}` per attendee.
+          - Effect: Allow
+            Principal:
+              Service: q.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+              - "sts:SetSourceIdentity"
+          - Effect: Allow
+            Principal:
+              Service: q.amazonaws.com
+            Action: "sts:TagSession"
+            Condition:
+              "ForAllValues:StringEquals":
+                "aws:TagKeys":
+                  - GroupIds
+                  - KiroSessionId
+      Policies:
+        - PolicyName: workshop-sandbox
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Read this attendee's config from SSM. WithDecryption needs kms:Decrypt for
+              # the SecureString params; scoping via kms:ViaService avoids naming the key.
+              - Sid: ReadWorkshopParams
+                Effect: Allow
+                Action:
+                  - "ssm:GetParameter"
+                  - "ssm:GetParameters"
+                  - "ssm:GetParametersByPath"
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ParameterPrefix}/*"
+              - Sid: DecryptSecureStrings
+                Effect: Allow
+                Action: "kms:Decrypt"
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "kms:ViaService": !Sub "ssm.${AWS::Region}.amazonaws.com"
+              # Push built images to this account's ECR. CreateRepository is here so
+              # create-on-push works for any image name (needs the repo creation template
+              # too — see ORGANIZER.md). GetAuthorizationToken is account-wide by design.
+              - Sid: EcrAuth
+                Effect: Allow
+                Action: "ecr:GetAuthorizationToken"
+                Resource: "*"
+              - Sid: EcrPush
+                Effect: Allow
+                Action:
+                  - "ecr:BatchCheckLayerAvailability"
+                  - "ecr:InitiateLayerUpload"
+                  - "ecr:UploadLayerPart"
+                  - "ecr:CompleteLayerUpload"
+                  - "ecr:PutImage"
+                  - "ecr:CreateRepository"
+                Resource: !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*"
+              - Sid: WhoAmI
+                Effect: Allow
+                Action: "sts:GetCallerIdentity"
+                Resource: "*"
+
+Outputs:
+  KiroSandboxRoleArn:
+    Description: >
+      Paste this into Kiro Web at Settings > Agent > Sandbox > IAM Role. It is the ONLY
+      value an attendee enters. Everything else is fetched from SSM using it.
+    Value: !GetAtt KiroSandboxRole.Arn
+  ParameterPrefix:
+    Description: SSM prefix bootstrap.sh reads. Must match SSM_PREFIX in scripts/bootstrap.sh.
+    Value: !Ref ParameterPrefix

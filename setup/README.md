@@ -1,9 +1,9 @@
-# Setup — about 20 minutes
+# Setup — about 5 minutes
 
 Mostly clicking. Do it before Module 01.
 
-1. **[00 — Wire up Kiro Web](00-kiro-web.md)** — connect the repo, paste in your
-   secrets, open the network allow-list, add the Flyte MCP, and connect to your devbox.
+1. **[00 — Wire up Kiro Web](00-kiro-web.md)** — connect your repo, paste one role ARN,
+   set two allow-list domains, add the Flyte MCP, and connect to your devbox.
 2. **[01 — Meet your devbox](01-your-devbox.md)** — what's actually running in your
    AWS account, and how to read the UI you'll live in all day.
 
