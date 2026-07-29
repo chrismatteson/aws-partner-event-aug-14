@@ -1,0 +1,14 @@
+{
+  "task_id": "task-rewrite-workshop-modules",
+  "task_description": "Rewrite workshop modules from copy-paste prompt format to structured Your task / Hints / Stretch format where students construct their own prompts. Update README.md with new interaction model explanation.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "All modules verified: no old prompt patterns remain, all checkpoints preserved, all technical warnings preserved, all 'Push it further' sections preserved, progressive difficulty maintained. README updated with new workflow. No protected files modified."
+  }
+}
