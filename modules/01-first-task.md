@@ -67,33 +67,11 @@ easy part.
 
 ---
 
-## 💡 Understand what just happened
-
-Ask Kiro to explain what `TaskEnvironment` and `@env.task` did here. Why did your plain
-Python function need an "environment" and an "image" to run on a cluster? Have it use
-the Flyte MCP and keep the explanation to a few sentences.
-
-The short version, so you can tell whether Kiro's answer is any good:
-
-Your function has to run *somewhere*. That somewhere is a container on a Kubernetes
-node, and a container needs an image. The `TaskEnvironment` is where you say what that
-execution context looks like -- which image, how much CPU and memory, which secrets. The
-`@env.task` decorator is what makes an ordinary function addressable by the cluster: it
-gets a name (`hello.main`), typed inputs and outputs, and its own tracked, retryable
-lifecycle.
-
-That last part is the bit that matters, and it's why the fan-out in the next module is
-free rather than something you have to engineer.
-
----
-
 ## Try this
 
-Ask Kiro to change the greeting and re-run. Watch how long it takes.
-
-That's your feedback loop for the rest of the day: seconds, not minutes, because the
-image never changes. Worth internalizing now -- it's what makes the parallel stuff in
-Module 02 fun instead of tedious.
+Ask Kiro to change the greeting and re-run. Watch how long it takes: seconds, not minutes,
+because only the code bundle moves and the image is cached. That fast loop is what makes
+the parallel work in the next module fun instead of tedious.
 
 ---
 

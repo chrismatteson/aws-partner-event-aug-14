@@ -398,7 +398,7 @@ Both are one command away: `kubectl get cm flyte-binary-config -n flyte`.
       The Dockerfile self-checks `a0` and the imports at build time — a green build means
       the entrypoint and every module dependency resolve.
 - [ ] **Do a full dry run as an attendee.** Fresh Kiro account, fresh AWS account, only
-      the card. Walk `setup/` → Module 05 without touching a terminal. This is the single
+      the card. Walk `setup/` → Module 03 without touching a terminal. This is the single
       most valuable hour available; everything below is guesswork without it.
 - [ ] Verify every module's prompts actually produce working code **with the MCP
       connected**. The modules deliberately don't pin API signatures — that's a hedge
@@ -544,7 +544,7 @@ the stack does *not* stop those charges. Delete the accounts.
 **Where Phoenix runs — decided: as a Flyte app on each attendee's devbox.** Verified
 working end to end (deployed, span sent from a pod, span read back). It's the better
 story — their cluster, their infra, one `flyte deploy`, no signup, no span quota — and it
-lets Module 11 reuse the `flyte deploy` verb from Module 05 to ship a whole web service.
+lets Module 11 reuse the `flyte deploy` verb from Module 03 to ship a whole web service.
 Phoenix Cloud is demoted to an aside.
 
 The residual risk is the scale-to-zero footgun (`Scaling` defaults to `replicas=(0,1)`,
@@ -586,7 +586,7 @@ a feature — attendees see queuing and concurrency limits for real — but if a
 for more memory than the box has, it sits in `Pending` forever. Module 03 warns about it.
 
 **`pandas` 3.x and `plotly` 6.x are pinned in the image** and are majors ahead of what
-most training data knows. If Kiro writes pandas 2 idioms in Module 04, that's the cause.
+most training data knows. If Kiro writes pandas 2 idioms in Module 03, that's the cause.
 
 **Three ways Module 11 fails silently, producing zero spans and no error.** Facilitators
 should know all three cold, because they're indistinguishable from the attendee's seat:

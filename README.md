@@ -37,7 +37,7 @@ Your workflow for every section follows the same loop:
 4. **Ask why.** The stretch question is there to make you curious. Ask Kiro to explain the thing you just built so you understand it, not just so you saw it work.
 5. **Move on.** Once the checkpoint is green, move to the next section.
 
-The modules get progressively less guided. Module 01 gives you generous hints; by Module 05 you are expected to figure out more on your own.
+The modules get progressively less guided. Module 01 gives you generous hints; by the partner tracks you are expected to figure out more on your own.
 
 ### Two tabs, two jobs
 
@@ -62,17 +62,15 @@ when the stakes are zero.
 | Time | Module | What you'll build |
 |---|---|---|
 | 09:00 | [Setup](setup/) | Kiro Web wired to your devbox |
-| 09:45 | [01 -- Your first cloud task](modules/01-first-task.md) | Plain Python, running on a cluster |
-| 10:15 | [02 -- Fan out](modules/02-fan-out.md) | The same task across 100 inputs, in parallel |
-| 10:45 | *break* | |
-| 11:00 | [03 -- Survive failure](modules/03-resilience.md) | Retries and per-task resources |
-| 11:30 | [04 -- See inside](modules/04-reports.md) | Live HTML reports from inside a task |
-| 12:00 | *lunch* | |
-| 13:00 | [05 -- Deploy it](modules/05-deploy.md) | A named, reusable entity on the backend |
-| 13:30 | [10 -- LlamaIndex](modules/10-llamaindex.md) | Parse a stack of PDFs in parallel, cached by content |
-| 15:00 | *break* | |
-| 15:15 | [11 -- Arize Phoenix](modules/11-arize-phoenix.md) | Deploy Phoenix to your own cluster, trace an agent into it |
-| 16:30 | [99 -- Now you drive](modules/99-now-you-drive.md) | Build something of your own |
+| 09:30 | [01 -- Your first cloud task](modules/01-first-task.md) | Plain Python, running on a cluster |
+| 10:00 | [02 -- Fan out](modules/02-fan-out.md) | The same task across 200 inputs, in parallel |
+| 10:30 | *break* | |
+| 10:45 | [03 -- Survive, see, and ship](modules/03-resilience.md) | Retries, live reports, and deploy |
+| 11:30 | [10 -- LlamaIndex](modules/10-llamaindex.md) | Parse a stack of PDFs in parallel, cached by content |
+| 12:30 | *lunch* | |
+| 13:30 | [11 -- Arize Phoenix](modules/11-arize-phoenix.md) | Deploy Phoenix to your own cluster, trace an agent into it |
+| 14:30 | *break* | |
+| 14:45 | [99 -- Now you drive](modules/99-now-you-drive.md) | Build something of your own |
 
 Partner tracks still cooking -- see [`modules/`](modules/) for
 [Protopia](modules/20-protopia.md), [CloudZero](modules/21-cloudzero.md), and

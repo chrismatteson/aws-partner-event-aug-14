@@ -91,4 +91,4 @@ ten thousand times on a cluster without anyone rewriting it.
 
 ---
 
-**Next:** [03 -- Survive failure](03-resilience.md)
+**Next:** [03 -- Survive, see, and ship](03-resilience.md)

@@ -1,97 +1,140 @@
-# 03 -- Survive failure
+# 03 -- Survive, see, and ship
 
-**~30 minutes.**
+**~45 minutes.**
 
-Real pipelines fail. A model API rate-limits you, a spot instance disappears, S3 has a
-bad minute, one PDF in ten thousand is malformed. None of that is exceptional -- at scale
-it's Tuesday.
-
-The question isn't how to prevent it. It's whether a transient blip costs you the whole
-run.
+Modules 01 and 02 got your code running and scaling. Production asks for three more
+things: it has to **survive failures**, let you **see inside** it, and **outlive your
+session**. That's this module — three tasks, each one a thing you'd otherwise build
+yourself.
 
 ---
 
-## Retries
+## 1. Survive failure
 
-You need to build a task that fails on purpose and then survives via retries. The key
-challenge: every retry runs in a **fresh pod** with fresh memory and a fresh filesystem.
-A naive counter variable resets to zero on every attempt. The task has to read its
-attempt number from what Flyte provides.
+Real pipelines fail. A model API rate-limits you, a spot instance vanishes, one PDF in
+ten thousand is malformed. The question isn't how to prevent it — it's whether a
+transient blip costs you the whole run.
 
-> **Your task:** Create `work/resilient.py` with a task that deliberately fails on its first attempt and succeeds when retried. The task must detect its current attempt number from Flyte (not from a local variable) and use that to decide whether to fail. Configure retries so the run recovers. Run it and confirm the final status.
+The trick you'll hit: **every retry runs in a fresh pod**, with fresh memory and a fresh
+filesystem. A counter variable (`attempts += 1`) resets to zero on every attempt, so the
+task fails identically forever and looks like retries are broken. The task has to read
+the attempt number Flyte *hands* it. That's the shape of every distributed-retry bug
+you'll ever write — cheaper to meet here than at 2am.
+
+> **Your task:** Create `work/resilient.py` with a task that deliberately fails on its
+> first attempt and succeeds when retried. It must detect its current attempt number from
+> Flyte — not from a local variable — and use that to decide whether to fail. Configure
+> retries so the run recovers. Run it and confirm the final status.
 >
-> **Hints:** Each retry is a new pod -- local state does not survive. Ask the MCP how a task reads its current attempt number. Also ask where `retries` goes in Flyte v2 -- it is NOT on the `TaskEnvironment`.
+> **Hints:** Each retry is a new pod; local state doesn't survive. Ask the MCP how a task
+> reads its current attempt number, and where `retries` goes in Flyte v2 — it is **not**
+> on the `TaskEnvironment` (that's the single most common v2 mistake; models reach for the
+> v1 spot). If Kiro puts `retries` on the environment, point it back at the MCP.
 >
-> **Stretch:** Ask Kiro to explain why a counter variable (`attempts += 1`) would not work for detecting retry attempts. What does a "fresh pod" really mean?
-
-> ℹ️ **The trick worth understanding.** Your first instinct is a counter -- `attempts +=
-> 1`. It won't work. **Every retry is a brand-new pod**: fresh process, fresh memory,
-> fresh filesystem. Your counter resets to zero and the task fails forever, identically,
-> looking for all the world like retries are broken.
->
-> The task has to read the attempt number that Flyte *hands* it. This is the shape of
-> every distributed-retry bug you'll ever write, and it's much cheaper to learn here
-> than at 2am.
-
-> ⚠️ **`retries` is not a `TaskEnvironment` parameter.** It goes on `@env.task(retries=3)`
-> or `task.override(retries=3)`. This is the single most common Flyte v2 mistake, and
-> models make it constantly because v1 worked differently. If Kiro puts `retries` on the
-> `TaskEnvironment`, it's guessing -- point it back at the MCP.
+> **Stretch:** Add a second task that asks for extra memory *just for itself* via a
+> resource override, while the others stay small — then find in the UI where it shows the
+> different request. Ask the MCP the right way to override resources for one task. (Reality
+> check: your devbox is one `m6i.2xlarge`, 8 vCPU / 32 GB total. Ask for 100 GB and the
+> pod sits in `Pending` forever — that's arithmetic, not a bug, and the same arithmetic on
+> a 500-node cluster.)
 
 ### ✅ Checkpoint
 
 In the Flyte UI, open the execution and find the flaky task. It shows **multiple
-attempts**, the early ones failed, the last one succeeded -- and the **run as a whole
-succeeded**.
+attempts** — the early ones failed, the last succeeded — and the **run as a whole
+succeeded**. Click into a failed attempt: its logs and error are still there. The failure
+isn't swept away, it's recorded, and the run survived it anyway.
 
-Click into the failed attempt. Its logs and error are still there. That's the point:
-the failure isn't swept away, it's recorded, and the run survived it anyway.
+### 💡 Understand
+
+Ask Kiro (via the MCP): how do retries let you run on **cheap, interruptible** compute? If
+losing a pod cost you the whole eight-hour run you'd buy expensive on-demand; if it costs
+one retried task, you buy spot at a fraction of the price. Reliability that's cheap to have
+changes what hardware you can afford.
 
 ---
 
-## Resources
+## 2. See inside
 
-Retries handle *transient* failure. The other kind is a task that simply needs more
-machine than its neighbours -- one memory-hungry step in a pipeline of cheap ones.
+So far you've watched Flyte's *operational* view — what ran, how long, what failed. It
+stops at the container boundary. It can't tell you your parse quality fell off a cliff on
+scanned pages, or which prompt variant won. For that you'd normally dump a CSV, open a
+notebook, make a chart, and watch it drift out of date.
 
-The wasteful fix is to raise memory everywhere and pay for it on every task. The good
-fix is to let one task ask for more, just for itself.
+Flyte's alternative: a task emits an **HTML report** attached to the execution, and it
+can update **while the task runs** — so a long job isn't a black box you stare at for
+forty minutes only to find it went wrong at minute three.
 
-> **Your task:** Add a second task to `work/resilient.py` that requests extra memory just for itself via a resource override, while other tasks stay small. Run it, then find in the UI where you can confirm it received different resources than its neighbours.
+> **Your task:** Create `work/report.py` with a task that generates an interactive HTML
+> report — a chart or small dashboard over data it computes — and updates it live as it
+> works. You should be able to open the report tab on the execution *while it's still
+> running* and watch it fill in.
 >
-> **Hints:** Ask the MCP for the right way to override resources for a single task in Flyte v2. Think about `task.override()` or the task decorator. The UI shows requested resources per task.
+> **Hints:** The `flyte.report` module gives you `log`, `flush`, `replace`, `get_tab`.
+> Reporting doesn't happen by accident — there's a flag on the task decorator that turns
+> it on; without it, your report code runs and nothing shows in the UI. Ask the MCP how
+> reporting is enabled and how to flush progress mid-run. Have the task do iterative work
+> and flush after each update.
 >
-> **Stretch:** Ask Kiro when you would override resources for one task instead of raising them for the whole environment. What is the cost tradeoff?
+> **Stretch:** Ask Kiro the difference between what the execution view tells you and what a
+> report tells you — and when you'd reach for each.
 
 ### ✅ Checkpoint
 
-In the UI, find the task and confirm its requested resources differ from its neighbours'.
+In the Flyte UI, open the execution, find the **report** tab, and watch it update while
+the task runs. The chart is rendered, interactive, and attached to *this* run — not a file
+someone has to find, not a notebook that only runs on one laptop.
 
-> **Reality check:** your devbox is one `m6i.2xlarge` -- 8 vCPU and 32 GB, total. Ask for
-> 100 GB and the pod will sit in `Pending` forever, because nothing can schedule it.
-> That's not a bug, it's arithmetic, and it's the same arithmetic on a 500-node cluster --
-> just with more room before it bites. If a task hangs in `Pending`, this is your first
-> suspect.
+### 💡 Understand
 
----
-
-## 💡 Understand what just happened
-
-Ask Kiro to explain briefly: how do retries and per-task resource overrides help you run
-cheaply *and* reliably? When would you override resources for one task instead of raising
-them for everything? Have it use the Flyte MCP.
-
-The economic argument, so you can grade the answer:
-
-Retries let you run on **cheap, interruptible compute**. If losing a pod costs you the
-whole eight-hour run, you buy on-demand and pay a large premium for reliability you're
-extracting from your wallet instead of your orchestrator. If losing a pod costs you one
-retried task, you buy spot at a fraction of the price. Reliability that's cheap to have
-changes what hardware you can afford to use.
-
-Per-task resources are the same argument in the other direction: one task needing 32 GB
-shouldn't set the price for the two hundred that need 500 MB.
+The execution view is **operational** (did it run? how long? what failed? — Flyte knows
+this for free). A report is **semantic** (is the output any *good*? — only your code knows
+what "good" means). "It succeeded" and "it worked" are different claims; a green execution
+with garbage outputs is a pipeline that succeeded at doing the wrong thing. This distinction
+comes straight back in [Module 11](11-arize-phoenix.md).
 
 ---
 
-**Next:** [04 -- See inside](04-reports.md)
+## 3. Ship it
+
+Everything so far has been `flyte run` — it uploads your code and runs it *now*. Great for
+developing, terrible as a production story: the pipeline exists only as long as your
+session does. Close the tab and the recipe is gone.
+
+`flyte deploy` registers your task environment on the backend as a **named, versioned
+entity** — something a schedule can fire, another system can trigger, or a colleague can
+run without ever seeing your source.
+
+> **Your task:** Deploy the environment from `work/hello.py` (Module 01) so it becomes a
+> named entity on the backend. Confirm it registered, find it in the UI *without* going
+> through an execution, then trigger it *without* re-running from source.
+>
+> **Hints:** Ask the MCP the difference between `flyte run` and `flyte deploy`. After
+> deploying, the entity should be findable in the UI as a standalone thing, and triggerable
+> directly — it's on the backend now, it doesn't need your file.
+>
+> **Stretch:** Ask Kiro what you can do now that you couldn't before — and how Flyte v2
+> versions deployed entities (deploy again and you get a new version, not a silent
+> overwrite, so a schedule pinned to a version doesn't change under you).
+
+### ✅ Checkpoint
+
+In the Flyte UI, find your deployed entity **without** opening an execution — it exists on
+its own. Then have Kiro trigger it without re-running from source.
+
+---
+
+## Where you've landed
+
+Stack it up: a plain Python function ([01](01-first-task.md)) that fans out across
+hundreds of inputs ([02](02-fan-out.md)), survives failure, shows its work live, and now
+exists as a durable thing the platform can operate. You never wrote a queue, a retry loop,
+a progress tracker, a dashboard, or a scheduler — and you checked each one yourself in the
+UI rather than taking anyone's word for it.
+
+---
+
+**Next up — the partner tracks.** Same Flyte, pointed at real problems:
+
+- [10 -- LlamaIndex](10-llamaindex.md): parse a pile of PDFs in parallel, cheaply
+- [11 -- Arize Phoenix](11-arize-phoenix.md): see inside an agent, not just around it
