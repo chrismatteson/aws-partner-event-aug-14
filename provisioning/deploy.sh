@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# Stand up one attendee's workshop account, end to end, with CloudFormation.
+#
+#   bash provisioning/deploy.sh <flyte-domain> <attendee-email> [llama-cloud-key]
+#
+# Example:
+#   bash provisioning/deploy.sh student01.flytedemo.app you@example.com llx-abc123
+#
+# It runs two CloudFormation stacks — the Flyte devbox (from the flyte-aws-marketplace
+# template) and the Kiro provisioning (provisioning/kiro-sandbox.yaml) — and prints the
+# four values setup/00-kiro-web.md needs. There is nothing imperative here beyond wiring
+# one stack's outputs into the next; both stacks are plain CloudFormation.
+#
+# Requirements:
+#   * AWS CLI v2 with credentials for the TARGET account (set AWS_PROFILE / AWS_REGION).
+#   * A Route 53 public hosted zone that <flyte-domain> sits under (auto-discovered).
+#   * The devbox AMI published to SSM /flyte-devbox/ami/latest in the region.
+#
+# Knobs (env vars):
+#   AWS_REGION       target region (default us-east-1 — Kiro Web + Bedrock live here)
+#   AUTOSTOP         Yes|No — devbox idle auto-stop. DEFAULT No, so it never sleeps and
+#                    there are no ~2-minute wake delays mid-workshop. Set AUTOSTOP=Yes to
+#                    save money on a long-lived box (it stops after ~30 min idle, wakes on
+#                    the next request).
+#   DEVBOX_STACK     devbox stack name   (default flyte-devbox-workshop)
+#   SANDBOX_STACK    provisioning stack  (default kiro-sandbox)
+#   STAGING_BUCKET   S3 bucket for packaging the nested devbox template (auto-created)
+#   MARKETPLACE_REF  git ref of flyte-aws-marketplace to deploy (default main)
+
+set -euo pipefail
+export AWS_PAGER=""
+
+FLYTE_DOMAIN="${1:-}"
+ATTENDEE_EMAIL="${2:-}"
+LLAMA_KEY="${3:-}"
+if [ -z "$FLYTE_DOMAIN" ] || [ -z "$ATTENDEE_EMAIL" ]; then
+    echo "usage: bash provisioning/deploy.sh <flyte-domain> <attendee-email> [llama-cloud-key]" >&2
+    exit 2
+fi
+
+REGION="${AWS_REGION:-us-east-1}"
+AUTOSTOP="${AUTOSTOP:-No}"
+DEVBOX_STACK="${DEVBOX_STACK:-flyte-devbox-workshop}"
+SANDBOX_STACK="${SANDBOX_STACK:-kiro-sandbox}"
+MARKETPLACE_REF="${MARKETPLACE_REF:-main}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+aws() { command aws --region "$REGION" --no-cli-pager "$@"; }
+step() { echo ""; echo "==> $*"; }
+fail() { echo ""; echo "ERROR: $*" >&2; exit 1; }
+
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text) \
+    || fail "No AWS credentials. Set AWS_PROFILE (and run 'aws sso login' if needed)."
+echo "Account $ACCOUNT_ID, region $REGION, domain $FLYTE_DOMAIN, autostop $AUTOSTOP"
+
+# --- preflight: the devbox AMI must be published in this region -------------------------
+aws ssm get-parameter --name /flyte-devbox/ami/latest --query Parameter.Value --output text >/dev/null 2>&1 \
+    || fail "SSM /flyte-devbox/ami/latest not found in $REGION. The devbox AMI isn't published to this account/region yet — publish it (flyte-aws-marketplace) before deploying."
+
+# --- 1. devbox stack (nested marketplace template) --------------------------------------
+step "Fetching the devbox template (flyte-aws-marketplace@${MARKETPLACE_REF})…"
+FAM_DIR=$(mktemp -d)
+trap 'rm -rf "$FAM_DIR"' EXIT
+git clone --quiet --depth 1 --branch "$MARKETPLACE_REF" \
+    https://github.com/unionai-oss/flyte-aws-marketplace.git "$FAM_DIR" \
+    || fail "Couldn't clone flyte-aws-marketplace."
+
+STAGING_BUCKET="${STAGING_BUCKET:-${DEVBOX_STACK}-staging-${ACCOUNT_ID}-${REGION}}"
+if ! aws s3api head-bucket --bucket "$STAGING_BUCKET" 2>/dev/null; then
+    step "Creating staging bucket $STAGING_BUCKET…"
+    if [ "$REGION" = "us-east-1" ]; then
+        aws s3api create-bucket --bucket "$STAGING_BUCKET" >/dev/null
+    else
+        aws s3api create-bucket --bucket "$STAGING_BUCKET" \
+            --create-bucket-configuration "LocationConstraint=$REGION" >/dev/null
+    fi
+fi
+
+step "Packaging + deploying the devbox stack ($DEVBOX_STACK)… (Prod mode: Aurora + ACM, ~5-10 min)"
+PACKAGED=$(mktemp)
+aws cloudformation package \
+    --template-file "$FAM_DIR/devbox/cloudformation/root.yaml" \
+    --s3-bucket "$STAGING_BUCKET" \
+    --output-template-file "$PACKAGED" >/dev/null
+aws cloudformation deploy \
+    --stack-name "$DEVBOX_STACK" \
+    --template-file "$PACKAGED" \
+    --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
+    --parameter-overrides "Domain=$FLYTE_DOMAIN" "AutoStop=$AUTOSTOP"
+
+# --- gather devbox outputs to feed the provisioning stack -------------------------------
+step "Reading devbox outputs…"
+dbout() { aws cloudformation describe-stacks --stack-name "$DEVBOX_STACK" \
+            --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+POOL_ID=$(dbout CognitoUserPoolId)
+CLIENT_ID=$(dbout CognitoM2MClientId)
+[ -n "$POOL_ID" ] && [ -n "$CLIENT_ID" ] || fail "Devbox stack didn't output Cognito ids — is it Prod mode (Domain set)?"
+
+CLIENT_SECRET=$(aws cognito-idp describe-user-pool-client \
+    --user-pool-id "$POOL_ID" --client-id "$CLIENT_ID" \
+    --query 'UserPoolClient.ClientSecret' --output text)
+COGNITO_PREFIX=$(aws cognito-idp describe-user-pool --user-pool-id "$POOL_ID" \
+    --query 'UserPool.Domain' --output text)
+COGNITO_DOMAIN="https://${COGNITO_PREFIX}.auth.${REGION}.amazoncognito.com"
+INSTANCE_ROLE=$(aws iam list-roles \
+    --query "Roles[?contains(RoleName,'${DEVBOX_STACK}') && contains(RoleName,'InstanceRole')].RoleName | [0]" \
+    --output text)
+[ -n "$INSTANCE_ROLE" ] && [ "$INSTANCE_ROLE" != "None" ] || fail "Couldn't find the devbox instance role."
+
+# --- 2. provisioning stack (role + SSM + Cognito login + Bedrock + ECR) -----------------
+step "Deploying the Kiro provisioning stack ($SANDBOX_STACK)…"
+PARAMS=(
+    "FlyteDomain=$FLYTE_DOMAIN"
+    "CognitoDomain=$COGNITO_DOMAIN"
+    "CognitoClientId=$CLIENT_ID"
+    "CognitoClientSecret=$CLIENT_SECRET"
+    "DevboxInstanceRoleName=$INSTANCE_ROLE"
+    "CognitoUserPoolId=$POOL_ID"
+    "AttendeeEmail=$ATTENDEE_EMAIL"
+)
+[ -n "$LLAMA_KEY" ] && PARAMS+=("LlamaCloudApiKey=$LLAMA_KEY")
+aws cloudformation deploy \
+    --stack-name "$SANDBOX_STACK" \
+    --template-file "$REPO_ROOT/provisioning/kiro-sandbox.yaml" \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --parameter-overrides "${PARAMS[@]}"
+
+# --- the handout ------------------------------------------------------------------------
+sbout() { aws cloudformation describe-stacks --stack-name "$SANDBOX_STACK" \
+            --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+cat <<EOF
+
+============================================================================
+  Ready. Give these to the attendee for setup/00-kiro-web.md:
+
+  Sandbox IAM Role ARN : $(sbout KiroSandboxRoleArn)
+  Flyte UI URL         : $(sbout FlyteUiUrl)
+  Flyte login (email)  : $(sbout FlyteLoginEmail)
+  Flyte login (pass)   : $(sbout FlytePassword)
+
+  Network allow-list (same for everyone): .$(echo "$FLYTE_DOMAIN" | cut -d. -f2-), .amazoncognito.com
+============================================================================
+EOF

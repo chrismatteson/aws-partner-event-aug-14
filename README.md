@@ -82,7 +82,8 @@ Partner tracks still cooking -- see [`modules/`](modules/) for
 
 ## Start here
 
-👉 **[setup/](setup/)** -- about 20 minutes, mostly clicking. Do it before Module 01.
+👉 **[setup/](setup/)** -- one deploy command, then ~5 minutes of clicks in Kiro Web. Do it
+before Module 01.
 
 Everything after setup assumes two things are true:
 1. Kiro can reach your devbox (Setup Checkpoint A).
@@ -115,9 +116,10 @@ never existed. With it, they write current, correct code. This is why setup matt
 - **Kiro says it worked but the UI shows nothing.** Trust the UI. Ask Kiro:
   *"Show me the exact command you ran and its full output."*
 - **Kiro is inventing Flyte APIs.** Its MCP connection is broken. Redo
-  [Setup Checkpoint B](setup/00-kiro-web.md#-checkpoint-b-the-mcp-is-live).
-- **Everything hangs.** Your devbox auto-stops when idle. The first request wakes it
-  (~2 min). Wait, then retry.
+  [Setup Checkpoint B](setup/README.md#-checkpoint-b-the-mcp-is-live).
+- **Everything hangs.** The first request of the day can be slow while the cluster comes
+  up. (If auto-stop was enabled — it's off by default — the first request after ~30 min
+  idle wakes the box, ~2 min.) Wait, then retry.
 - **Still stuck?** Grab a facilitator. Seriously -- don't burn 20 minutes solo.
 
 ## After today

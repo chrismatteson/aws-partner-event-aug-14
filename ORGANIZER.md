@@ -207,7 +207,7 @@ Organization or an AWS-controlled one.
 ### 🔴 4. Kiro Web must actually run `npx mcp-remote`
 
 Kiro Web supports **local (stdio) MCP servers only** — remote MCP is documented as *not
-available*. The Flyte MCP server is remote. `setup/00-kiro-web.md` bridges it with
+available*. The Flyte MCP server is remote. `setup/README.md` bridges it with
 `npx -y mcp-remote <url>`.
 
 **Unverified:** that Kiro Web's sandbox has `npx`, allows it to fetch a package, and
@@ -308,7 +308,7 @@ unverified here.
 validate?), start a task, run `aws sts get-caller-identity` and `aws ssm get-parameter
 --name /workshop/flyte-domain`. Then the full `bootstrap.sh`.
 
-**If it fails:** revert `setup/00-kiro-web.md` and `bootstrap.sh` to the typed-secrets flow
+**If it fails:** revert `setup/README.md` and `bootstrap.sh` to the typed-secrets flow
 (it's in git history) — eight secrets on a card, but proven. Decide this **at T-3 weeks**,
 because it changes the card, the provisioning, and the setup doc.
 
@@ -325,7 +325,7 @@ an auth error rather than a mystery.
 ### 🟠 8. Network allow-list semantics
 
 Unverified: whether a custom allow-list **adds to** the "Common dependencies" tier or
-**replaces** it. `setup/00-kiro-web.md` assumes additive (level = Common dependencies,
+**replaces** it. `setup/README.md` assumes additive (level = Common dependencies,
 *plus* custom entries).
 
 **Test:** set it as documented, then confirm both `pip install` (needs `pypi.org`, from

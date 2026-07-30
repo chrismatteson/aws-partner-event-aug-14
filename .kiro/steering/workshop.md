@@ -119,8 +119,10 @@ Model IDs on this endpoint are bare — `anthropic.claude-sonnet-5`,
 you have seen everywhere is the **legacy** Bedrock surface and will fail here. Tasks need
 `AWS_REGION` in their env; the client will not infer it.
 
-**The devbox auto-stops when idle.** The first request after a lull wakes it and takes
-~2 minutes. That is normal. Wait and retry rather than diagnosing a phantom failure.
+**The devbox does not auto-stop by default.** If a facilitator enabled auto-stop, the
+first request after a lull wakes it and takes ~2 minutes — that is normal, wait and retry
+rather than diagnosing a phantom failure. Either way, the very first request of the day can
+be slow while the cluster comes up.
 
 # Conventions
 
