@@ -551,14 +551,13 @@ The residual risk is the scale-to-zero footgun (`Scaling` defaults to `replicas=
 storage is ephemeral, so an idle Phoenix silently loses every trace). Module 11 pins
 `replicas=(1,1)` and explains why. Confirm it holds across a lunch break during the dry run.
 
-**The three stubs.** [Protopia](modules/20-protopia.md),
-[CloudZero](modules/21-cloudzero.md), [Portal26](modules/22-portal26.md) are written as
-honest background with a real Flyte hook each, not filler. If any becomes a real track,
-**CloudZero is the one to build first** — its telemetry/AnyCost API contract is public
-and precise, its `cloudzero-agent` is Apache-2.0 and reads pod labels, and Flyte pods
-already carry `project`/`domain`/`workflow`/`execution-id`. That's a genuine integration
-someone could ship, not a demo. Portal26's token-budget concept is the best *pure Flyte*
-exercise of the three and is already suggested in [Module 99](modules/99-now-you-drive.md).
+**The three partner stubs were cut** (Protopia, CloudZero, Portal26) — none had a
+self-serve path an attendee could use in the time available. If any becomes a real track
+later, **CloudZero is the one to build first**: its telemetry/AnyCost API contract is
+public and precise, its `cloudzero-agent` is Apache-2.0 and reads pod labels, and Flyte
+pods already carry `project`/`domain`/`workflow`/`execution-id` — a genuine integration
+someone could ship, not a demo. Portal26's token-budget idea survives as a pure-Flyte
+build-your-own suggestion in [Module 99](modules/99-now-you-drive.md).
 
 **Repo discrepancy to check.** flyte-aws-marketplace's root README describes
 `devbox/cloudformation/root.yaml` nesting `common/{data,auth}`, while `devbox/README.md`

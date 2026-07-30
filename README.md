@@ -72,10 +72,6 @@ when the stakes are zero.
 | 14:30 | *break* | |
 | 14:45 | [99 -- Now you drive](modules/99-now-you-drive.md) | Build something of your own |
 
-Partner tracks still cooking -- see [`modules/`](modules/) for
-[Protopia](modules/20-protopia.md), [CloudZero](modules/21-cloudzero.md), and
-[Portal26](modules/22-portal26.md) stubs.
-
 ---
 
 ## Start here

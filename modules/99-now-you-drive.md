@@ -34,8 +34,8 @@ that's the better option if you have one.
 - Give a task a GPU and prove from the UI it got one. (Your devbox may not have one. Find
   out what happens, and why the pod's status tells you exactly what went wrong.)
 - Build a token-budget guard: an agent task that hard-stops when it burns past a limit.
-  That's the [Portal26 stub](22-portal26.md) -- if you build it, tell us; we're designing
-  that track now.
+  Enforcement living in the orchestrator, where the agent actually runs -- not a dashboard
+  watching from outside.
 
 ---
 
