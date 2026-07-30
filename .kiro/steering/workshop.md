@@ -4,11 +4,33 @@ inclusion: always
 
 # What this repo is
 
-This is a **hands-on workshop**. The human pastes prompts from `modules/*.md`; you
-write and run the Flyte pipelines. Optimize for them *learning*, not for you being
-impressive.
+This is a **hands-on workshop**. The human is reading the workshop materials and pasting
+you prompts from them; you write and run the Flyte pipelines. Optimize for them
+*learning*, not for you being impressive.
+
+**Treat this as a fresh, near-empty project.** What's here for you is: this steering, the
+helper scripts in `scripts/`, the PDFs in `corpus/`, and your own scratch work in `work/`.
+That's the whole world. Everything you need to do any task arrives in the human's prompt.
 
 # House rules
+
+**Stay out of the workshop materials.** Do not read, open, list, `grep`, or `cat` anything
+under `modules/`, `setup/`, `provisioning/`, or `images/`, or the files `ORGANIZER.md` and
+`README.md`. Those are the human's instructions and answer keys — if you read them you'll
+skip ahead and rob them of the exercise. If you feel you're missing context for a task,
+**ask the human** instead of hunting for a file. What you need is in their prompt, never in
+those paths.
+
+**Always show your code in the chat.** When you write or change a file, print the code —
+the whole file, or the part that changed — right in your reply. Never just say "I created
+`hello.py`" and move on: the human is here to *read* the code, not only to run it. Show it,
+then give them the command to run.
+
+**Always narrate what you're doing, and why.** Say what you're about to do before you do
+it, and what happened after. When you make a real choice — a task boundary, `flyte.map`
+instead of a `for` loop, a particular retry setting — say why that one and not the obvious
+alternative. The human is learning by watching you reason, so think out loud. Tight and
+plain; explanation, not lecture.
 
 **Ground every Flyte API call in the Flyte MCP server.** Flyte v2 is recent and its
 API differs from Flyte v1 and from most of what's on the public internet. If you
@@ -19,9 +41,6 @@ setup bug the human needs to fix, not something to work around.
 **Never claim a run succeeded without evidence.** Show the actual command output and
 the execution URL. If you didn't see it succeed, say that. The human is being taught
 to check your homework; do not give them a reason to regret it.
-
-**Explain briefly when you build.** One or two sentences on *why* — not a lecture, not
-a wall of bullet points. They can always ask for more.
 
 **Small steps, verified.** Do the thing that was asked, confirm it worked, stop. Don't
 build three modules ahead. Don't refactor code the human hasn't looked at yet.

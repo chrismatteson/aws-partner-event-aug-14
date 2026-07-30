@@ -85,27 +85,49 @@ echo "✅ Config loaded for ${FLYTE_DOMAIN}"
 # ---------------------------------------------------------------------------
 # 3. Install the docker→podman shim
 # ---------------------------------------------------------------------------
+# Flyte's builder shells out to `docker buildx`. This sandbox ships podman — often as a
+# symlink `/usr/local/bin/docker -> podman`. Bare podman does NOT implement the buildx
+# subcommands Flyte probes (`buildx ls/inspect/create`), so wherever `docker` is really
+# podman (or missing) we install our shim OVER it. Only a genuine docker-with-buildx is
+# left alone (which this sandbox never has).
 step "Installing the docker→podman shim…"
 chmod +x "$TOKEN_SCRIPT" "$SHIM_SRC"
-if command -v docker > /dev/null 2>&1 && ! docker buildx version 2>/dev/null | grep -q podman-shim; then
-    echo "   A real docker is already on PATH — leaving it alone."
-else
-    SHIM_DEST=""
-    for d in /usr/local/bin "$HOME/.local/bin"; do
-        if mkdir -p "$d" 2>/dev/null && cp "$SHIM_SRC" "$d/docker" 2>/dev/null; then
-            chmod +x "$d/docker" && SHIM_DEST="$d/docker" && break
+
+need_shim=true
+if command -v docker >/dev/null 2>&1; then
+    if docker buildx version 2>/dev/null | grep -q podman-shim; then
+        need_shim=false; echo "   shim already installed"
+    elif docker --version 2>/dev/null | grep -qi podman; then
+        echo "   'docker' on PATH is really podman — installing the shim over it"
+    elif docker buildx version >/dev/null 2>&1; then
+        need_shim=false; echo "   a real docker with buildx is present — leaving it alone"
+    fi
+fi
+
+if [ "$need_shim" = true ]; then
+    installed=false
+    # Include the existing `docker` path so we replace it in place — otherwise PATH order
+    # could leave the podman symlink winning. rm -f FIRST: if the path is a symlink to the
+    # podman binary, `cp` would follow it and overwrite podman itself.
+    for d in "$(command -v docker 2>/dev/null)" /usr/local/bin/docker "$HOME/.local/bin/docker"; do
+        [ -n "$d" ] || continue
+        mkdir -p "$(dirname "$d")" 2>/dev/null || continue
+        rm -f "$d" 2>/dev/null
+        if cp "$SHIM_SRC" "$d" 2>/dev/null && chmod +x "$d" 2>/dev/null; then
+            installed=true
+            echo "   installed shim at $d"
+            case ":$PATH:" in *":$(dirname "$d"):"*) ;; *) export PATH="$(dirname "$d"):$PATH" ;; esac
         fi
     done
-    [ -n "$SHIM_DEST" ] || fail "Couldn't install the shim to /usr/local/bin or ~/.local/bin. Neither was writable."
-    echo "   Installed at ${SHIM_DEST}"
-    case ":$PATH:" in
-        *":$(dirname "$SHIM_DEST"):"*) ;;
-        *) export PATH="$(dirname "$SHIM_DEST"):$PATH" ;;
-    esac
+    [ "$installed" = true ] || fail "Couldn't install the shim (tried the existing docker path, /usr/local/bin, ~/.local/bin)."
 fi
-docker buildx version > /dev/null 2>&1 \
-    || fail "The shim is installed but 'docker buildx version' failed. Is podman present? Try: podman --version"
-echo "✅ docker buildx responds via podman"
+
+hash -r 2>/dev/null || true
+# Assert it is OUR shim answering — not podman, whose `buildx version` also exits 0 and
+# would give a false pass. This is exactly the check that a bare `buildx version` missed.
+docker buildx version 2>/dev/null | grep -q podman-shim \
+    || fail "Shim not active: 'docker buildx version' isn't reporting the shim. which docker: $(command -v docker 2>/dev/null). PATH=$PATH"
+echo "✅ docker buildx responds via the shim"
 
 # ---------------------------------------------------------------------------
 # 4. Log in to ECR
