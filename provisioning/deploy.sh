@@ -25,7 +25,6 @@
 #   DEVBOX_STACK     devbox stack name   (default flyte-devbox-workshop)
 #   SANDBOX_STACK    provisioning stack  (default kiro-sandbox)
 #   STAGING_BUCKET   S3 bucket for packaging the nested devbox template (auto-created)
-#   MARKETPLACE_REF  git ref of flyte-aws-marketplace to deploy (default main)
 
 set -euo pipefail
 export AWS_PAGER=""
@@ -42,7 +41,6 @@ REGION="${AWS_REGION:-us-east-1}"
 AUTOSTOP="${AUTOSTOP:-No}"
 DEVBOX_STACK="${DEVBOX_STACK:-flyte-devbox-workshop}"
 SANDBOX_STACK="${SANDBOX_STACK:-kiro-sandbox}"
-MARKETPLACE_REF="${MARKETPLACE_REF:-main}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 aws() { command aws --region "$REGION" --no-cli-pager "$@"; }
@@ -57,13 +55,11 @@ echo "Account $ACCOUNT_ID, region $REGION, domain $FLYTE_DOMAIN, autostop $AUTOS
 aws ssm get-parameter --name /flyte-devbox/ami/latest --query Parameter.Value --output text >/dev/null 2>&1 \
     || fail "SSM /flyte-devbox/ami/latest not found in $REGION. The devbox AMI isn't published to this account/region yet — publish it (flyte-aws-marketplace) before deploying."
 
-# --- 1. devbox stack (nested marketplace template) --------------------------------------
-step "Fetching the devbox template (flyte-aws-marketplace@${MARKETPLACE_REF})…"
-FAM_DIR=$(mktemp -d)
-trap 'rm -rf "$FAM_DIR"' EXIT
-git clone --quiet --depth 1 --branch "$MARKETPLACE_REF" \
-    https://github.com/unionai-oss/flyte-aws-marketplace.git "$FAM_DIR" \
-    || fail "Couldn't clone flyte-aws-marketplace."
+# --- 1. devbox stack (vendored, nested template) ----------------------------------------
+# The devbox CloudFormation is vendored under provisioning/devbox-cfn/ (from
+# flyte-aws-marketplace, Apache-2.0) so this repo is self-contained and we can modify it.
+DEVBOX_ROOT="$REPO_ROOT/provisioning/devbox-cfn/devbox/cloudformation/root.yaml"
+[ -f "$DEVBOX_ROOT" ] || fail "Vendored devbox template not found at $DEVBOX_ROOT."
 
 STAGING_BUCKET="${STAGING_BUCKET:-${DEVBOX_STACK}-staging-${ACCOUNT_ID}-${REGION}}"
 if ! aws s3api head-bucket --bucket "$STAGING_BUCKET" 2>/dev/null; then
@@ -79,7 +75,7 @@ fi
 step "Packaging + deploying the devbox stack ($DEVBOX_STACK)… (Prod mode: Aurora + ACM, ~5-10 min)"
 PACKAGED=$(mktemp)
 aws cloudformation package \
-    --template-file "$FAM_DIR/devbox/cloudformation/root.yaml" \
+    --template-file "$DEVBOX_ROOT" \
     --s3-bucket "$STAGING_BUCKET" \
     --output-template-file "$PACKAGED" >/dev/null
 aws cloudformation deploy \
