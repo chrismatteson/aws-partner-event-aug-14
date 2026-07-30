@@ -21,54 +21,66 @@ The net: the attendee types one value (the role ARN). No secrets on a card.
 
 ## Deploy, per account
 
-`kiro-sandbox.yaml` takes the devbox stack's outputs and creates the role + the plain
-SSM params. Two of the params are secret (SecureString), and **CloudFormation cannot
-create SecureString parameters** — the deploy script sets those out of band.
+**One `aws cloudformation deploy`.** `kiro-sandbox.yaml` is self-contained — it creates
+the SSM config, the sandbox role, ECR create-on-push, and the Bedrock policy on the devbox
+instance role, and outputs the role ARN. No imperative follow-up steps.
+
+The inputs are the devbox stack's outputs plus the client secret and (optionally) the
+LlamaCloud key. Gather them, then deploy:
 
 ```bash
-STACK=flyte-devbox-student07          # the devbox stack in this account
+DEVBOX_STACK=flyte-devbox-workshop     # the devbox stack in this account
 REGION=us-east-1
 
-# Pull what the devbox stack already knows.
-FLYTE_DOMAIN=$(aws cloudformation describe-stacks --stack-name "$STACK" \
-  --query "Stacks[0].Outputs[?OutputKey=='FlyteHost'].OutputValue" --output text)
-POOL_ID=$(aws cloudformation describe-stacks --stack-name "$STACK" \
-  --query "Stacks[0].Outputs[?OutputKey=='CognitoUserPoolId'].OutputValue" --output text)
-CLIENT_ID=$(aws cloudformation describe-stacks --stack-name "$STACK" \
-  --query "Stacks[0].Outputs[?OutputKey=='CognitoM2MClientId'].OutputValue" --output text)
+Q() { aws cloudformation describe-stacks --stack-name "$DEVBOX_STACK" --region "$REGION" \
+        --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
 
-# The client secret is NOT a stack output — fetch it.
-CLIENT_SECRET=$(aws cognito-idp describe-user-pool-client \
+FLYTE_DOMAIN=$(Q FlyteCliEndpointProd)
+POOL_ID=$(Q CognitoUserPoolId)
+CLIENT_ID=$(Q CognitoM2MClientId)
+CLIENT_SECRET=$(aws cognito-idp describe-user-pool-client --region "$REGION" \
   --user-pool-id "$POOL_ID" --client-id "$CLIENT_ID" \
   --query 'UserPoolClient.ClientSecret' --output text)
 
-COGNITO_DOMAIN="https://<your-cognito-prefix>.auth.${REGION}.amazoncognito.com"
-LLAMA_KEY="llx-..."                   # this attendee's LlamaCloud key
+# Cognito hosted-UI domain (derive the prefix from the pool, or read it once).
+COGNITO_DOMAIN="https://<prefix>.auth.${REGION}.amazoncognito.com"
 
-# 1. The role + plain (non-secret) params.
+# The EC2 instance role the devbox runs as — Bedrock perms attach to it.
+INSTANCE_ROLE=$(aws cloudformation describe-stack-resources --stack-name "$DEVBOX_STACK" \
+  --region "$REGION" --query "StackResources[?ResourceType=='AWS::CloudFormation::Stack' \
+  && contains(LogicalResourceId,'Compute')].PhysicalResourceId" --output text)
+INSTANCE_ROLE_NAME=$(aws cloudformation describe-stack-resources --stack-name "$INSTANCE_ROLE" \
+  --region "$REGION" --query "StackResources[?LogicalResourceId=='InstanceRole'].PhysicalResourceId" \
+  --output text)
+
+LLAMA_KEY="llx-..."                    # this attendee's key, or "" to add later
+
 aws cloudformation deploy \
-  --stack-name kiro-sandbox-student07 \
+  --stack-name kiro-sandbox \
   --template-file provisioning/kiro-sandbox.yaml \
   --capabilities CAPABILITY_NAMED_IAM \
   --region "$REGION" \
   --parameter-overrides \
       FlyteDomain="$FLYTE_DOMAIN" \
       CognitoDomain="$COGNITO_DOMAIN" \
-      CognitoClientId="$CLIENT_ID"
+      CognitoClientId="$CLIENT_ID" \
+      CognitoClientSecret="$CLIENT_SECRET" \
+      LlamaCloudApiKey="$LLAMA_KEY" \
+      DevboxInstanceRoleName="$INSTANCE_ROLE_NAME"
 
-# 2. The SecureString params CFN can't make. No secret ever passes through a CFN parameter.
-aws ssm put-parameter --region "$REGION" --overwrite \
-  --name /workshop/cognito-client-secret --type SecureString --value "$CLIENT_SECRET"
-aws ssm put-parameter --region "$REGION" --overwrite \
-  --name /workshop/llama-cloud-api-key --type SecureString --value "$LLAMA_KEY"
-
-# 3. The one value that goes to the attendee.
-aws cloudformation describe-stacks --stack-name kiro-sandbox-student07 \
+# The one value that goes to the attendee:
+aws cloudformation describe-stacks --stack-name kiro-sandbox --region "$REGION" \
   --query "Stacks[0].Outputs[?OutputKey=='KiroSandboxRoleArn'].OutputValue" --output text
 ```
 
-That final ARN is the attendee's whole card. Script this across all 40 accounts and emit
-one ARN each.
+That final ARN is the attendee's whole card. Script it across all 40 accounts, one ARN
+each.
+
+> **Secrets are stored as SSM `String`, not `SecureString`**, because CloudFormation can't
+> create a SecureString without a custom resource — and the goal here is one pure-CFN
+> deploy. They're passed as `NoEcho` parameters and readable only by the sandbox role, in
+> a throwaway account deleted after the event. For a durable deployment, make those two
+> SecureString (custom resource or out-of-band) instead.
 
 ## What the role can do
 

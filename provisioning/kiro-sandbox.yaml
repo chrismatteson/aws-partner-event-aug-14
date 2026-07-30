@@ -1,52 +1,76 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Per-attendee Kiro Web scaffolding for the AWS Partner workshop. Creates the one IAM
-  role a Kiro Web sandbox assumes, plus the SSM parameters bootstrap.sh reads at runtime.
-  Deploy this into each attendee account AFTER the devbox stack, feeding it that stack's
-  outputs. The single stack output, KiroSandboxRoleArn, is the ONLY value an attendee
-  types into Kiro (Settings > Agent > Sandbox > IAM Role).
+  Per-attendee Kiro Web scaffolding for the AWS Partner workshop, as a single
+  self-contained deploy. Creates everything the workshop needs beyond the devbox: the
+  IAM role a Kiro Web sandbox assumes, the SSM config bootstrap.sh reads, a Bedrock
+  policy on the devbox instance role, and ECR create-on-push. One `aws cloudformation
+  deploy`; its only output, KiroSandboxRoleArn, is the single value an attendee pastes
+  into Kiro (Settings > Agent > Sandbox > IAM Role).
 
 # ---------------------------------------------------------------------------------------
-# Why this exists
+# Design note: ONE run, nothing imperative.
 # ---------------------------------------------------------------------------------------
-# Kiro Web cannot be provisioned — there is no AWS::Kiro resource and no admin-push for
-# agent config. But everything the sandbox NEEDS can be provisioned: an IAM role it
-# assumes (short-lived creds, no static keys in a prompt-injectable agent) and the
-# per-attendee config it reads from SSM. With both in place, the attendee's entire Kiro
-# setup is: connect GitHub, set two fixed allow-list entries, add one MCP server, and
-# paste this role's ARN. No secrets typed.
+# Everything here is CloudFormation. There are no `aws ssm put-parameter`, `aws ecr`, or
+# `aws ec2 modify-instance-metadata-options` side-steps — those would not be reproducible
+# across 40 accounts. Two consequences worth knowing:
 #
-# The role's credentials flow to the aws CLI / boto3 / podman inside the sandbox via the
-# standard AWS credential chain, so bootstrap.sh just uses them — it never calls
-# AssumeRole itself.
+#   * Secrets (Cognito client secret, LlamaCloud key) are stored as SSM String, not
+#     SecureString, because CloudFormation cannot create a SecureString without a custom
+#     (Lambda-backed) resource. They are passed as NoEcho parameters and readable only by
+#     principals with ssm:GetParameter on /workshop/* — i.e. the sandbox role below — in a
+#     throwaway account that is deleted after the event. For a durable deployment, create
+#     these two as SecureString out of band, or via a custom resource.
+#   * IMDS is already handled: the marketplace devbox template sets
+#     HttpPutResponseHopLimit=3, so task pods on the k3s-in-Docker box can reach the
+#     instance role. Nothing to add here.
 
 Parameters:
   FlyteDomain:
     Type: String
-    Description: The devbox hostname, e.g. student07.workshop.union.ai (devbox stack output).
+    Description: The devbox hostname, e.g. student01.flytedemo.app (devbox stack output FlyteCliEndpointProd).
   CognitoDomain:
     Type: String
-    Description: >
-      Cognito hosted-UI base URL, e.g.
-      https://flyte-devbox-1234.auth.us-east-1.amazoncognito.com
+    Description: Cognito hosted-UI base URL, e.g. https://<prefix>.auth.us-east-1.amazoncognito.com
   CognitoClientId:
     Type: String
     Description: The M2M client id (devbox stack output CognitoM2MClientId).
+  CognitoClientSecret:
+    Type: String
+    NoEcho: true
+    Description: The M2M client secret (from `aws cognito-idp describe-user-pool-client`).
+  LlamaCloudApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: This attendee's LlamaCloud API key (llx-...). Used in Module 10. Optional; add later via a stack update if blank now.
+  DevboxInstanceRoleName:
+    Type: String
+    Description: >
+      Name of the EC2 instance role the devbox runs as (e.g.
+      flyte-devbox-workshop-Compute-XXXX-InstanceRole-YYYY). Bedrock permissions are
+      attached to it so task pods can call Claude via the instance role. Leave blank to
+      skip (e.g. if the devbox role already grants Bedrock).
+    Default: ""
+  CognitoUserPoolId:
+    Type: String
+    Description: >
+      The devbox's Cognito user pool id (devbox stack output CognitoUserPoolId). A login
+      user is created in it so the attendee can sign in to the Flyte UI in a browser.
+  AttendeeEmail:
+    Type: String
+    Description: Email that is the attendee's Flyte UI login (the pool uses email as username).
   ParameterPrefix:
     Type: String
     Default: /workshop
-    Description: SSM path prefix. bootstrap.sh reads from here; keep in sync if you change it.
+    Description: SSM path prefix. Must match SSM_PREFIX in scripts/bootstrap.sh.
 
-# The two SECRET params (cognito-client-secret, llama-cloud-api-key) are not inputs here:
-# CloudFormation can't create SecureString parameters, so the deploy script writes them
-# with `aws ssm put-parameter --type SecureString` after this stack completes. See
-# provisioning/README.md. This template owns the plain params + the role; secrets are the
-# script's job. Keeping them out avoids passing secrets through CFN parameters at all.
+Conditions:
+  HasLlamaKey: !Not [!Equals [!Ref LlamaCloudApiKey, ""]]
+  HasDevboxRole: !Not [!Equals [!Ref DevboxInstanceRoleName, ""]]
 
 Resources:
   # -------------------------------------------------------------------------------------
-  # SSM parameters — the per-attendee config, read at runtime by bootstrap.sh.
-  # Nothing here is typed into Kiro. The role below is what grants read access.
+  # SSM config — read at runtime by bootstrap.sh via the sandbox role. Nothing typed.
   # -------------------------------------------------------------------------------------
   FlyteDomainParam:
     Type: AWS::SSM::Parameter
@@ -69,16 +93,36 @@ Resources:
       Type: String
       Value: !Ref CognitoClientId
 
-  # SecureString params can't be created from a plain CFN property, so these two are set
-  # out-of-band after deploy (see provisioning/README.md). We declare their NAMES here as
-  # String placeholders would leak the secret into the template — instead the role policy
-  # below grants read on the whole prefix, and the deploy script writes the SecureStrings.
-  #
-  # NOTE: AWS::SSM::Parameter does not support SecureString in CloudFormation. The deploy
-  # script (README) runs `aws ssm put-parameter --type SecureString` for the secret ones.
+  CognitoClientSecretParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "${ParameterPrefix}/cognito-client-secret"
+      Type: String
+      Value: !Ref CognitoClientSecret
+
+  LlamaCloudApiKeyParam:
+    Type: AWS::SSM::Parameter
+    Condition: HasLlamaKey
+    Properties:
+      Name: !Sub "${ParameterPrefix}/llama-cloud-api-key"
+      Type: String
+      Value: !Ref LlamaCloudApiKey
 
   # -------------------------------------------------------------------------------------
-  # The role the Kiro sandbox assumes.
+  # ECR create-on-push — so a build with any (root-level) image name auto-creates its
+  # repository on first push. Prefix ROOT covers repos with no namespace, e.g. `flyte`.
+  # -------------------------------------------------------------------------------------
+  EcrCreateOnPush:
+    Type: AWS::ECR::RepositoryCreationTemplate
+    Properties:
+      Prefix: ROOT
+      AppliedFor:
+        - CREATE_ON_PUSH
+      Description: Auto-create root-level repositories on first push (workshop image builds).
+      ImageTagMutability: MUTABLE
+
+  # -------------------------------------------------------------------------------------
+  # The role the Kiro sandbox assumes. Assumable only by Kiro's service principal.
   # -------------------------------------------------------------------------------------
   KiroSandboxRole:
     Type: AWS::IAM::Role
@@ -89,17 +133,12 @@ Resources:
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
-          # Principal is Kiro's service (q.amazonaws.com), verified against
-          # kiro.dev/docs/web/sandbox/environment-configuration. Only Kiro can assume this.
-          #
-          # Kiro's own example additionally pins sts:SourceIdentity to a specific Kiro user
-          # id — which we CANNOT do at provisioning time, because attendees haven't logged
-          # in yet and have no user id to bake in. We omit that value-condition so the role
-          # is pre-bakeable. Consequence: any Kiro user who knew this ARN could point their
-          # sandbox at it. Acceptable here — the account is throwaway, the role grants only
-          # ECR push and workshop SSM read within THIS account, and the account is destroyed
-          # after the event. To harden for a non-throwaway setting, add back
-          # `Condition: {StringEquals: {"sts:SourceIdentity": "<kiro-user-id>"}}` per attendee.
+          # Principal q.amazonaws.com verified against kiro.dev/docs/web/sandbox/
+          # environment-configuration. Kiro's example also pins sts:SourceIdentity to a
+          # specific Kiro user id, which we can't know before attendees log in, so we omit
+          # that value-condition to keep the role pre-bakeable. Consequence: any Kiro user
+          # who learned this ARN could assume it — into a throwaway account that only holds
+          # this devbox and is deleted after the event.
           - Effect: Allow
             Principal:
               Service: q.amazonaws.com
@@ -120,8 +159,6 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              # Read this attendee's config from SSM. WithDecryption needs kms:Decrypt for
-              # the SecureString params; scoping via kms:ViaService avoids naming the key.
               - Sid: ReadWorkshopParams
                 Effect: Allow
                 Action:
@@ -129,16 +166,6 @@ Resources:
                   - "ssm:GetParameters"
                   - "ssm:GetParametersByPath"
                 Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ParameterPrefix}/*"
-              - Sid: DecryptSecureStrings
-                Effect: Allow
-                Action: "kms:Decrypt"
-                Resource: "*"
-                Condition:
-                  StringEquals:
-                    "kms:ViaService": !Sub "ssm.${AWS::Region}.amazonaws.com"
-              # Push built images to this account's ECR. CreateRepository is here so
-              # create-on-push works for any image name (needs the repo creation template
-              # too — see ORGANIZER.md). GetAuthorizationToken is account-wide by design.
               - Sid: EcrAuth
                 Effect: Allow
                 Action: "ecr:GetAuthorizationToken"
@@ -158,12 +185,164 @@ Resources:
                 Action: "sts:GetCallerIdentity"
                 Resource: "*"
 
+  # -------------------------------------------------------------------------------------
+  # Flyte UI login. The devbox's Cognito pool starts empty; the attendee needs a user to
+  # sign in to the Flyte UI (the ALB gates it with Cognito). CloudFormation can create the
+  # user but has NO password property — so a tiny Lambda-backed custom resource sets a
+  # permanent, known password (the one on the handout). This is still one CFN deploy and
+  # runs identically per account; it is not an out-of-band admin command.
+  #
+  # Trade-off: the password appears as a custom-resource property (visible in the stack /
+  # CloudTrail). Fine for a throwaway account; for a durable one, deliver a temp password
+  # by email (DesiredDeliveryMediums) and let the user reset it on first login instead.
+  # -------------------------------------------------------------------------------------
+  # Secrets Manager generates a policy-compliant password once, stable across redeploys.
+  # The Lambda reads it and sets it on the user; the stack outputs it (below). This is how
+  # the password ends up in the stack Outputs — an input parameter would go in, not out.
+  FlytePasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Generated Flyte UI password for the attendee login.
+      GenerateSecretString:
+        PasswordLength: 16
+        RequireEachIncludedType: true   # >=1 lower, upper, digit, symbol — meets the Cognito policy
+        ExcludeCharacters: '"''\@/`$'   # drop chars that complicate CLI/JSON/handout
+
+  FlyteUser:
+    Type: AWS::Cognito::UserPoolUser
+    Properties:
+      UserPoolId: !Ref CognitoUserPoolId
+      Username: !Ref AttendeeEmail
+      MessageAction: SUPPRESS  # don't email an invite; the Lambda sets the password below
+      UserAttributes:
+        - Name: email
+          Value: !Ref AttendeeEmail
+        - Name: email_verified
+          Value: "true"
+
+  PasswordFnRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: set-cognito-password
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action: cognito-idp:AdminSetUserPassword
+                Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${CognitoUserPoolId}"
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref FlytePasswordSecret
+
+  PasswordFn:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 30
+      Role: !GetAtt PasswordFnRole.Arn
+      # Posts its own response with urllib rather than importing cfnresponse — that
+      # module is NOT reliably present in the python3.12 inline runtime, and a missing
+      # import means the function never replies and the stack hangs.
+      Code:
+        ZipFile: |
+          import json, urllib.request, boto3
+          def send(event, context, status, data=None, reason=None):
+              body = json.dumps({
+                  "Status": status,
+                  "Reason": reason or "see CloudWatch",
+                  "PhysicalResourceId": event.get("PhysicalResourceId") or context.log_stream_name,
+                  "StackId": event["StackId"], "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"], "Data": data or {},
+              }).encode()
+              req = urllib.request.Request(event["ResponseURL"], data=body, method="PUT",
+                                          headers={"content-type": "", "content-length": str(len(body))})
+              urllib.request.urlopen(req)
+          def handler(event, context):
+              try:
+                  data = {}
+                  if event["RequestType"] in ("Create", "Update"):
+                      p = event["ResourceProperties"]
+                      pw = boto3.client("secretsmanager").get_secret_value(
+                          SecretId=p["SecretArn"])["SecretString"]
+                      boto3.client("cognito-idp").admin_set_user_password(
+                          UserPoolId=p["UserPoolId"], Username=p["Username"],
+                          Password=pw, Permanent=True)
+                      data["Password"] = pw
+                  send(event, context, "SUCCESS", data)
+              except Exception as e:
+                  send(event, context, "FAILED", reason=str(e))
+
+  SetFlytePassword:
+    Type: Custom::CognitoPassword
+    DependsOn: FlyteUser
+    Properties:
+      ServiceToken: !GetAtt PasswordFn.Arn
+      UserPoolId: !Ref CognitoUserPoolId
+      Username: !Ref AttendeeEmail
+      SecretArn: !Ref FlytePasswordSecret
+
+  # -------------------------------------------------------------------------------------
+  # Bedrock for the devbox task pods. Attached to the devbox's own instance role, so LLM
+  # calls resolve credentials from the instance role via IMDS — no keys anywhere.
+  # Superset covering both the classic Bedrock runtime and the Mantle endpoint.
+  # -------------------------------------------------------------------------------------
+  BedrockInstancePolicy:
+    Type: AWS::IAM::Policy
+    Condition: HasDevboxRole
+    Properties:
+      PolicyName: workshop-bedrock
+      Roles:
+        - !Ref DevboxInstanceRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: BedrockInvoke
+            Effect: Allow
+            # The Converse / ConverseStream APIs authorize under InvokeModel — there is no
+            # separate bedrock:Converse action. bedrock-mantle:CreateInference covers the
+            # AnthropicBedrockMantle endpoint the modules use.
+            Action:
+              - "bedrock:InvokeModel"
+              - "bedrock:InvokeModelWithResponseStream"
+              - "bedrock-mantle:CreateInference"
+            Resource: "*"
+          - Sid: BedrockMarketplaceSubscribe
+            Effect: Allow
+            Action:
+              - "aws-marketplace:Subscribe"
+              - "aws-marketplace:Unsubscribe"
+              - "aws-marketplace:ViewSubscriptions"
+            Resource: "*"
+
 Outputs:
   KiroSandboxRoleArn:
     Description: >
       Paste this into Kiro Web at Settings > Agent > Sandbox > IAM Role. It is the ONLY
-      value an attendee enters. Everything else is fetched from SSM using it.
+      value an attendee enters; everything else is fetched from SSM using it.
     Value: !GetAtt KiroSandboxRole.Arn
   ParameterPrefix:
     Description: SSM prefix bootstrap.sh reads. Must match SSM_PREFIX in scripts/bootstrap.sh.
     Value: !Ref ParameterPrefix
+  FlyteUiUrl:
+    Description: Open this in a browser to reach the Flyte UI (log in with the Cognito user below).
+    Value: !Sub "https://${FlyteDomain}/v2"
+  FlyteLoginEmail:
+    Description: Username for the Flyte UI.
+    Value: !Ref AttendeeEmail
+  FlytePassword:
+    Description: Password for the Flyte UI login (generated in-stack, set on the Cognito user).
+    Value: !GetAtt SetFlytePassword.Password
