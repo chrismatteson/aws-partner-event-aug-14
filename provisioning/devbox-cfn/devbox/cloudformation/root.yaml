@@ -110,8 +110,18 @@ Parameters:
       and forwards once it's healthy — customers hit the same URL and wait.
       Set No for always-on (recommended for serious Prod workloads).
 
+  LcNamePrefix:
+    Type: String
+    Default: ""
+    Description: >-
+      Lowercase base for the S3 bucket / ECR namespace / Cognito domain (all lowercase-only).
+      Empty = derive from the stack name (fine for a top-level deploy via deploy.sh). Set to a
+      lowercase value when this template is NESTED -- nested stack names contain uppercase,
+      which S3/ECR/Cognito reject. provisioning/root.yaml passes "flyte".
+
 Conditions:
   IsProd: !Not [!Equals [!Ref Domain, ""]]
+  HasLcPrefix: !Not [!Equals [!Ref LcNamePrefix, ""]]
   HasAmiId: !Not [!Equals [!Ref AmiId, ""]]
   WantsEvalPublic: !And
     - !Equals [!Ref Domain, ""]
@@ -392,12 +402,12 @@ Resources:
     Properties:
       TemplateURL: ../../common/cloudformation/data.yaml
       Parameters:
-        NamePrefix: !Sub "${AWS::StackName}-flyte"
+        NamePrefix: !If [HasLcPrefix, !Ref LcNamePrefix, !Sub "${AWS::StackName}-flyte"]
         VpcId: !Ref Vpc
         SubnetIds: !Join [",", [!Ref PublicSubnet, !Ref PublicSubnetB]]
         ClientSecurityGroupId: !Ref InstanceSecurityGroup
         DBSecretName: !Sub "${AWS::StackName}-flyte-db"
-        EcrNamespace: !Sub "${AWS::StackName}-flyte"
+        EcrNamespace: !If [HasLcPrefix, !Ref LcNamePrefix, !Sub "${AWS::StackName}-flyte"]
         DBMinCapacity: 0
         DBMaxCapacity: 4
         BackupRetentionPeriod: 7
@@ -410,7 +420,7 @@ Resources:
       Parameters:
         NamePrefix: !Ref AWS::StackName
         FlyteHost: !Ref Domain
-        CognitoDomainPrefix: !Sub "${AWS::StackName}-${AWS::AccountId}"
+        CognitoDomainPrefix: !If [HasLcPrefix, !Sub "${LcNamePrefix}-${AWS::AccountId}", !Sub "${AWS::StackName}-${AWS::AccountId}"]
         CliCallbackUrls: !Join
           - ","
           - - http://localhost:8080/callback
@@ -510,7 +520,7 @@ Resources:
         CognitoWebClientId: !If [IsProd, !GetAtt CommonAuth.Outputs.UserPoolClientId, "none"]
         CognitoPoolId: !If [IsProd, !GetAtt CommonAuth.Outputs.UserPoolId, "none"]
         CognitoUserPoolArn: !If [IsProd, !GetAtt CommonAuth.Outputs.UserPoolArn, "none"]
-        CognitoDomainPrefix: !If [IsProd, !Sub "${AWS::StackName}-${AWS::AccountId}", "none"]
+        CognitoDomainPrefix: !If [IsProd, !If [HasLcPrefix, !Sub "${LcNamePrefix}-${AWS::AccountId}", !Sub "${AWS::StackName}-${AWS::AccountId}"], "none"]
 
 Outputs:
   # ---- Eval mode outputs (Eval+Public) ------------------------------------

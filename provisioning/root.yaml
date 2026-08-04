@@ -210,6 +210,10 @@ Resources:
       Parameters:
         Domain: !GetAtt Prep.Domain
         AutoStop: !Ref AutoStop
+        # Nested stack names contain uppercase; force a lowercase base for the S3 bucket /
+        # ECR namespace / Cognito domain (all lowercase-only). Bucket -> flyte-<acct>-<region>,
+        # Cognito -> flyte-<acct>: unique per account.
+        LcNamePrefix: flyte
       TimeoutInMinutes: 40
 
   # ===================================================================================
