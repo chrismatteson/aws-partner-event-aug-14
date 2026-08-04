@@ -60,7 +60,7 @@ Two layers make that work:
 
   ```bash
   aws cloudformation deploy --stack-name flytedemo-delegator \
-    --template-file provisioning/delegator-role.yaml \
+    --template-file operator/delegator-role.yaml \
     --capabilities CAPABILITY_NAMED_IAM --region us-east-1 \
     --parameter-overrides ParentZoneId=<parent-zone-id> ParentDomain=flytedemo.app \
       LabelPattern='^s[0-9a-f]{8}$' DelegationExternalId=<generate-a-secret>

@@ -37,7 +37,7 @@
 # central Function URL (SCP-blocked) but CAN sts:AssumeRole, so the recommended path is:
 #   DELEGATOR_ROLE_ARN + DELEGATION_EXTERNAL_ID   RECOMMENDED, needs NO central credentials.
 #                    The attendee account assumes the central delegator role (deployed once via
-#                    provisioning/delegator-role.yaml) with its OWN creds, gated by the
+#                    operator/delegator-role.yaml) with its OWN creds, gated by the
 #                    external-id, and calls the role's guard Lambda -- which writes exactly one
 #                    NS record in the parent zone and nothing else. The role ARN is not secret;
 #                    the external-id is (inject it privately, never commit it). DELEGATOR_FUNCTION

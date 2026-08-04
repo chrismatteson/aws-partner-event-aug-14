@@ -390,7 +390,7 @@ Both are one command away: `kubectl get cm flyte-binary-config -n flyte`.
       must survive the session across a break. Leave one idle, come back, confirm it lives
       and its state survived. If it recycles, brief facilitators on the re-run recovery.
 - [ ] Ask AWS whether promo credits cover Bedrock 3P model usage.
-- [ ] **Deploy the delegator role once** (`provisioning/delegator-role.yaml`) in the
+- [ ] **Deploy the delegator role once** (`operator/delegator-role.yaml`) in the
       `flytedemo.app` account and set the external-id secret. After that, every account's
       subdomain auto-derives (`s<hash>.flytedemo.app`) and self-delegates — no per-account
       DNS, no zone ID to plumb, no action in the parent account per deploy.
