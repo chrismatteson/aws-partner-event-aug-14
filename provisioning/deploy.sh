@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Stand up one attendee's workshop account, end to end, with CloudFormation.
 #
-#   bash provisioning/deploy.sh <flyte-domain> <attendee-email> [llama-cloud-key]
+#   bash provisioning/deploy.sh [flyte-domain] [llama-cloud-key]
 #
-# Example:
-#   bash provisioning/deploy.sh student01.flytedemo.app you@example.com llx-abc123
+# With NO domain (the Workshop-Studio case), it derives a unique, stable one from this
+# account's id: s<8-hex-of-sha256(account-id)>.<PARENT_DOMAIN>. So the same command works
+# unchanged in every attendee account, no per-account argument:
+#   bash provisioning/deploy.sh
+# Or pin the domain explicitly (testing):
+#   bash provisioning/deploy.sh student01.flytedemo.app llx-abc123
 #
 # It runs two CloudFormation stacks -- the Flyte devbox (from the flyte-aws-marketplace
 # template) and the Kiro provisioning (provisioning/kiro-sandbox.yaml) -- and prints the
@@ -28,27 +32,32 @@
 #   DEVBOX_AMI_ID    explicit AMI id. Set this in a bare account that has nothing in SSM
 #                    /flyte-devbox/ami/latest (e.g. a shared/public AMI); skips the SSM
 #                    preflight and passes AmiId to the stack.
-# Delegation (deploy.sh creates a hosted zone for <flyte-domain> IN the target account,
-# then delegates it from the parent zone by one of two mechanisms):
-#   DELEGATION_PROFILE + DELEGATION_ZONE_ID   RECOMMENDED for cross-org (Workshop Studio)
-#                    accounts. The operator also holds a profile for the parent account;
-#                    deploy.sh writes the NS record there directly. Zone id = the parent zone.
-#   DELEGATION_URL + DELEGATION_TOKEN         the central delegation Lambda
-#                    (provisioning/delegation-service.yaml). Only works when the deploying
-#                    account can reach that Function URL (same account or same org -- cross-org
-#                    accounts are blocked by SCP). Signed with SigV4 (the URL is AuthType IAM).
+# Delegation (deploy.sh creates a hosted zone for <flyte-domain> IN the target account, then
+# delegates it from the parent zone). A locked-down Workshop Studio account can't reach a
+# central Function URL (SCP-blocked) but CAN sts:AssumeRole, so the recommended path is:
+#   DELEGATOR_ROLE_ARN + DELEGATION_EXTERNAL_ID   RECOMMENDED, needs NO central credentials.
+#                    The attendee account assumes the central delegator role (deployed once via
+#                    provisioning/delegator-role.yaml) with its OWN creds, gated by the
+#                    external-id, and calls the role's guard Lambda -- which writes exactly one
+#                    NS record in the parent zone and nothing else. The role ARN is not secret;
+#                    the external-id is (inject it privately, never commit it). DELEGATOR_FUNCTION
+#                    overrides the Lambda name (default flytedemo-delegator).
+#   DELEGATION_PROFILE + DELEGATION_ZONE_ID       same-operator testing only: you also hold a
+#                    profile for the parent account; deploy.sh writes the NS record directly.
 #   (neither)        <flyte-domain> is assumed already resolvable; the NS are printed.
 
 set -euo pipefail
 export AWS_PAGER=""
 
-FLYTE_DOMAIN="${1:-}"
-ATTENDEE_EMAIL="${2:-}"
-LLAMA_KEY="${3:-}"
-if [ -z "$FLYTE_DOMAIN" ] || [ -z "$ATTENDEE_EMAIL" ]; then
-    echo "usage: bash provisioning/deploy.sh <flyte-domain> <attendee-email> [llama-cloud-key]" >&2
-    exit 2
-fi
+FLYTE_DOMAIN="${1:-}"        # optional; if empty it's derived from the account id (below)
+LLAMA_KEY="${2:-${LLAMA_CLOUD_API_KEY:-}}"
+# AWS Workshop Studio assigns random participant logins, so we don't take an email as input.
+# This is only the Cognito username for the Flyte console (a throwaway per-account pool) --
+# generic by default; set ATTENDEE_EMAIL to override.
+ATTENDEE_EMAIL="${ATTENDEE_EMAIL:-workshop@flytedemo.app}"
+# When no domain is given, deploy.sh builds <label>.<PARENT_DOMAIN> where <label> is derived
+# from this account's id -- unique, stable, and needs no central coordination (see below).
+PARENT_DOMAIN="${PARENT_DOMAIN:-flytedemo.app}"
 
 REGION="${AWS_REGION:-us-east-1}"
 AUTOSTOP="${AUTOSTOP:-No}"
@@ -62,6 +71,22 @@ fail() { echo ""; echo "ERROR: $*" >&2; exit 1; }
 
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text) \
     || fail "No AWS credentials. Set AWS_PROFILE (and run 'aws sso login' if needed)."
+
+# Derive a unique, stable subdomain from the account id when one isn't given. Each attendee
+# has their own account, so sha256(account-id) is collision-free and needs zero coordination
+# (no counter, no central assignment, no races when many accounts deploy at once). Hashing
+# (vs the raw id) keeps the 12-digit account id out of public DNS. Deterministic -> re-runs
+# hit the same name. Matches the delegator guard's label pattern ^s[0-9a-f]{8}$.
+if [ -z "$FLYTE_DOMAIN" ]; then
+    _sha256hex() {
+        if command -v sha256sum >/dev/null 2>&1; then sha256sum | awk '{print $1}'
+        elif command -v shasum   >/dev/null 2>&1; then shasum -a 256 | awk '{print $1}'
+        else openssl dgst -sha256 | awk '{print $NF}'; fi
+    }
+    LABEL="s$(printf '%s' "$ACCOUNT_ID" | _sha256hex | cut -c1-8)"
+    FLYTE_DOMAIN="${LABEL}.${PARENT_DOMAIN}"
+    echo "No domain given -- derived from account id: $FLYTE_DOMAIN"
+fi
 echo "Account $ACCOUNT_ID, region $REGION, domain $FLYTE_DOMAIN, autostop $AUTOSTOP"
 
 # --- preflight: the devbox AMI -----------------------------------------------------------
@@ -95,10 +120,31 @@ else
 fi
 ZONE_NS=$(aws route53 get-hosted-zone --id "$ZONE_ID" --query 'DelegationSet.NameServers' --output json)
 
-if [ -n "${DELEGATION_PROFILE:-}" ] && [ -n "${DELEGATION_ZONE_ID:-}" ]; then
+if [ -n "${DELEGATOR_ROLE_ARN:-}" ]; then
+    # RECOMMENDED cross-org path. The attendee account assumes the central delegator role with
+    # ITS OWN credentials (no central creds in this deploy), gated by the external-id, then
+    # calls the guard Lambda -- which writes exactly one NS record in the parent zone. Nothing
+    # here can touch anything else in the parent zone.
+    step "Delegating $FLYTE_DOMAIN via the central delegator role (assume-role)..."
+    ASSUME=(--role-arn "$DELEGATOR_ROLE_ARN" --role-session-name "ws-deleg-${ACCOUNT_ID}")
+    [ -n "${DELEGATION_EXTERNAL_ID:-}" ] && ASSUME+=(--external-id "$DELEGATION_EXTERNAL_ID")
+    DCREDS=$(aws sts assume-role "${ASSUME[@]}" \
+        --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text) \
+        || fail "couldn't assume DELEGATOR_ROLE_ARN (check the ARN + DELEGATION_EXTERNAL_ID)."
+    read -r DAK DSK DST <<<"$DCREDS"
+    DELEG_PAYLOAD=$(printf '{"subdomain":"%s","nameservers":%s}' "$FLYTE_DOMAIN" "$ZONE_NS")
+    DELEG_OUT=$(mktemp)
+    DELEG_META=$(AWS_ACCESS_KEY_ID="$DAK" AWS_SECRET_ACCESS_KEY="$DSK" AWS_SESSION_TOKEN="$DST" \
+        aws lambda invoke --function-name "${DELEGATOR_FUNCTION:-flytedemo-delegator}" \
+        --cli-binary-format raw-in-base64-out --payload "$DELEG_PAYLOAD" "$DELEG_OUT" 2>&1) \
+        || fail "delegator Lambda invoke failed: $DELEG_META"
+    grep -q '"ok": *true' "$DELEG_OUT" \
+        || fail "delegator rejected the request: $(cat "$DELEG_OUT")"
+    rm -f "$DELEG_OUT"
+    echo "   delegated. waiting ~30s for propagation..."; sleep 30
+elif [ -n "${DELEGATION_PROFILE:-}" ] && [ -n "${DELEGATION_ZONE_ID:-}" ]; then
     # Direct delegation: the operator running this also holds creds for the parent account
-    # (a separate AWS profile). This is the model that works for cross-org attendee accounts
-    # (Workshop Studio SCPs block cross-account calls to a central delegation Lambda).
+    # (a separate AWS profile). Same-operator testing only.
     step "Delegating $FLYTE_DOMAIN into the parent zone (profile: $DELEGATION_PROFILE)..."
     DELEG_RRS=$(echo "$ZONE_NS" | python3 -c 'import json,sys; print(json.dumps([{"Value":n} for n in json.load(sys.stdin)]))')
     DELEG_BATCH=$(printf '{"Changes":[{"Action":"UPSERT","ResourceRecordSet":{"Name":"%s","Type":"NS","TTL":300,"ResourceRecords":%s}}]}' "$FLYTE_DOMAIN" "$DELEG_RRS")
@@ -109,21 +155,6 @@ if [ -n "${DELEGATION_PROFILE:-}" ] && [ -n "${DELEGATION_ZONE_ID:-}" ]; then
         --hosted-zone-id "$DELEGATION_ZONE_ID" --change-batch "$DELEG_BATCH" \
         --query 'ChangeInfo.Status' --output text --no-cli-pager \
         || fail "direct delegation failed (check DELEGATION_PROFILE / DELEGATION_ZONE_ID)."
-    echo "   waiting ~30s for delegation to propagate..."; sleep 30
-elif [ -n "${DELEGATION_URL:-}" ] && [ -n "${DELEGATION_TOKEN:-}" ]; then
-    # Delegation via the central Lambda (provisioning/delegation-service.yaml). Works when
-    # the deploying account CAN reach that Function URL -- i.e. same account, or same org.
-    # (Cross-org Workshop Studio accounts are blocked by SCP; use DELEGATION_PROFILE there.)
-    step "Delegating $FLYTE_DOMAIN via the delegation service..."
-    DELEG_BODY=$(printf '{"token":"%s","subdomain":"%s","nameservers":%s}' \
-        "$DELEGATION_TOKEN" "$FLYTE_DOMAIN" "$ZONE_NS")
-    eval "$(aws configure export-credentials --format env 2>/dev/null)"  # AuthType AWS_IAM -> SigV4
-    DELEG_CURL=(--aws-sigv4 "aws:amz:${REGION}:lambda" --user "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}")
-    [ -n "${AWS_SESSION_TOKEN:-}" ] && DELEG_CURL+=(-H "x-amz-security-token: ${AWS_SESSION_TOKEN}")
-    curl -fsS "${DELEG_CURL[@]}" -X POST "$DELEGATION_URL" \
-        -H 'content-type: application/json' -d "$DELEG_BODY" \
-        || fail "delegation call failed (check DELEGATION_URL / DELEGATION_TOKEN)."
-    echo ""
     echo "   waiting ~30s for delegation to propagate..."; sleep 30
 else
     echo "No delegation configured -- assuming $FLYTE_DOMAIN is already resolvable."
@@ -160,6 +191,7 @@ aws cloudformation deploy \
     --stack-name "$DEVBOX_STACK" \
     --template-file "$PACKAGED" \
     --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
+    --no-fail-on-empty-changeset \
     --parameter-overrides "Domain=$FLYTE_DOMAIN" "AutoStop=$AUTOSTOP"
 
 # --- gather devbox outputs to feed the provisioning stack -------------------------------
@@ -191,12 +223,14 @@ PARAMS=(
     "DevboxInstanceRoleName=$INSTANCE_ROLE"
     "CognitoUserPoolId=$POOL_ID"
     "AttendeeEmail=$ATTENDEE_EMAIL"
+    "KiroNonce=$(date +%s)"          # re-trigger the Kiro enable custom resource each deploy
 )
 [ -n "$LLAMA_KEY" ] && PARAMS+=("LlamaCloudApiKey=$LLAMA_KEY")
 aws cloudformation deploy \
     --stack-name "$SANDBOX_STACK" \
     --template-file "$REPO_ROOT/provisioning/kiro-sandbox.yaml" \
     --capabilities CAPABILITY_NAMED_IAM \
+    --no-fail-on-empty-changeset \
     --parameter-overrides "${PARAMS[@]}"
 
 # --- the handout ------------------------------------------------------------------------
@@ -206,6 +240,13 @@ ROLE_ARN=$(sbout KiroSandboxRoleArn)
 UI_URL=$(sbout FlyteUiUrl)
 LOGIN_EMAIL=$(sbout FlyteLoginEmail)
 LOGIN_PASS=$(sbout FlytePassword)
+KIRO_USER=$(sbout KiroUserId)
+KIRO_STATUS=$(sbout KiroStatus)
+KIRO_ERROR=$(sbout KiroError)
+KIRO_DEBUG=$(sbout KiroDebug)
+KIRO_PROFILE=$(sbout KiroProfileArn)
+REGISTRY=$(dbout ProdImageRegistry)                       # <acct>.dkr.ecr.<region>..../<repo>
+ECR_HOST="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 ALLOWLIST=".$(echo "$FLYTE_DOMAIN" | cut -d. -f2-), .amazoncognito.com"
 MCP_ARGS="-y mcp-remote https://flyte-mcp.apps.demo.hosted.unionai.cloud/flyte-mcp/mcp"
 cat <<EOF
@@ -218,7 +259,18 @@ cat <<EOF
     login     : $LOGIN_EMAIL
     password  : $LOGIN_PASS
 
+  CONFIGURE THE CLI  (one config; run once on the devbox / in a Kiro task)
+    flyte create config --endpoint $FLYTE_DOMAIN --registry $REGISTRY --project flytesnacks --domain development
+
+  DOCKER LOGIN TO ECR  (before building/pushing images)
+    aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ECR_HOST
+
   KIRO WEB  (the agent -- https://app.kiro.dev)
+    Enable status        : $KIRO_STATUS   (instance/profile/user/subscription via API)
+    Identity Center user : $LOGIN_EMAIL  (id $KIRO_USER)
+    Kiro profile         : ${KIRO_PROFILE:-<none>}
+    Sign in              : app.kiro.dev with that Identity Center user (set its password via
+                           the Identity Center invitation/reset), then connect GitHub in Kiro.
     Sandbox IAM Role ARN : $ROLE_ARN
       (paste at Settings > Agent > Sandbox > IAM Role)
     Network allow-list   : $ALLOWLIST
@@ -227,3 +279,19 @@ cat <<EOF
   THEN, in a Kiro task:  Run bash scripts/bootstrap.sh
 ================================================================================
 EOF
+
+# Kiro enablement is best-effort (private/undocumented API) -- surface diagnostics instead of
+# failing the deploy. If it didn't fully succeed, show the error + trace and where to dig.
+if [ "$KIRO_STATUS" != "ok" ]; then
+    cat <<EOF
+
+  !! KIRO ENABLE: $KIRO_STATUS ${KIRO_ERROR:+-- $KIRO_ERROR}
+     trace : $KIRO_DEBUG
+     logs  : FN=\$(aws cloudformation describe-stack-resources --stack-name $SANDBOX_STACK \\
+               --query "StackResources[?contains(LogicalResourceId,'KiroEnableFn')].PhysicalResourceId" \\
+               --output text --region $REGION); aws logs tail "/aws/lambda/\$FN" --region $REGION
+     retry : re-run this deploy (the Kiro calls are idempotent + retry transient errors).
+             Kiro enable is fully automated -- no console step; a failure here is a real bug,
+             so send the trace above.
+EOF
+fi

@@ -93,8 +93,11 @@ But [`provisioning/kiro-sandbox.yaml`](provisioning/) bakes a **sandbox IAM role
 per-attendee config in **SSM**, so the attendee pastes only the role ARN and `bootstrap.sh`
 fetches the rest. This collapsed the card from eight secrets to one. It leans on a
 July-2026 Preview feature; **red test 6b** gates it, with the typed-secrets flow in git
-history as the fallback. The irreducible manual floor: enable Kiro (admin), connect GitHub,
-two allow-list entries, one MCP server, paste the ARN.
+history as the fallback. Kiro enablement itself — Identity Center instance + profile +
+Pro subscription — is now **fully automated by the deploy** via API (no console step; see
+provisioning/README.md). The irreducible manual floor: connect GitHub, two allow-list
+entries, one MCP server, paste the ARN, and set the Identity Center user's password (the
+one bit the deploy can't set — it sends an invitation email).
 
 **4d. The whole workshop is one Kiro task.** Decided. The sandbox spins up once, bootstrap
 runs once, `work/` persists in that sandbox all day (it stays gitignored — no need to
@@ -280,12 +283,13 @@ what's still exposed:
   — podman build already leaves the image in local storage, but if Flyte ever builds
   *without* `--push` and expects a loadable image, check this first).
 
-### 🔴 6. Kiro seats
+### 🟠 6. Kiro seats
 
-AWS is providing them. **Confirm the entitlement is real, is Pro or higher (Web is not on
-the free tier), and is in `us-east-1`** (the only preview region). This is a procurement
-dependency with no technical workaround, and it's the one that ends the workshop at
-minute five if it's wrong.
+**Now self-provisioned by the deploy** — it assigns each attendee a Q Developer **Pro**
+subscription via API (`CreateAssignment`, proven end-to-end from zero), so this is no longer
+the procurement dependency it was. Still confirm two things: it runs in **`us-east-1`** (the
+only preview region), and that self-subscribed Pro seats are fine on the billing/policy side
+(~$20/mo/seat prorated — trivial for a one-day throwaway account, but know it's there).
 
 ### 🔴 6b. The sandbox IAM role → SSM path actually works
 
@@ -386,8 +390,10 @@ Both are one command away: `kubectl get cm flyte-binary-config -n flyte`.
       must survive the session across a break. Leave one idle, come back, confirm it lives
       and its state survived. If it recycles, brief facilitators on the re-run recovery.
 - [ ] Ask AWS whether promo credits cover Bedrock 3P model usage.
-- [ ] Decide the DNS scheme. `student01..student40.<zone>` in one Route 53 zone is
-      simplest; the stack finds the hosted zone itself, so there's no zone ID to plumb.
+- [ ] **Deploy the delegator role once** (`provisioning/delegator-role.yaml`) in the
+      `flytedemo.app` account and set the external-id secret. After that, every account's
+      subdomain auto-derives (`s<hash>.flytedemo.app`) and self-delegates — no per-account
+      DNS, no zone ID to plumb, no action in the parent account per deploy.
 
 ### T-2 weeks
 - [ ] Build and push the workshop image, **public**, immutable tag:
@@ -416,15 +422,16 @@ Both are one command away: `kubectl get cm flyte-binary-config -n flyte`.
 - [ ] **Create an ECR repository creation template** in each account with
       `appliedFor = CREATE_ON_PUSH`. Without it, attendees can only push images named
       `flyte`, and any agent that picks a different name fails confusingly.
-- [ ] **Deploy `provisioning/kiro-sandbox.yaml`** into each account (after the devbox
-      stack), then the two `put-parameter --type SecureString` calls. See
-      [provisioning/README.md](provisioning/README.md). This creates the sandbox role +
-      SSM config — it's what replaces the eight-value card with one role ARN.
-- [ ] **Capture each account's role ARN** (stack output `KiroSandboxRoleArn`). That's the
-      whole card. One value × 40, scriptable, nothing secret transcribed by hand.
-- [ ] **Enable Kiro Web org-wide** (Identity Center → Kiro Settings → Autonomous agents)
-      and **install the Kiro GitHub App** on the org once. Both are one-time admin actions;
-      neither is CFN-able.
+- [ ] **Run `bash provisioning/deploy.sh` in each account** — one command, no args. It
+      derives the subdomain, self-delegates the zone, deploys the devbox + the Kiro
+      provisioning stack, and enables Kiro end-to-end via API (Identity Center instance +
+      profile + user + Pro subscription). See [provisioning/README.md](provisioning/README.md).
+      One command × 40, scriptable.
+- [ ] **Capture each account's role ARN** from the deploy output (`KiroSandboxRoleArn`).
+      That's the whole card — nothing secret transcribed by hand.
+- [ ] **Set each Identity Center user's password.** `CreateUser` sends an invitation email,
+      so use attendees' real emails (they get the invite) or an external IdP — the one Kiro
+      bit the deploy can't set. GitHub is connected per-attendee in the Kiro UI.
 - [ ] **Bake the IMDS hop limit** (whatever red test 2 landed on) into the launch template
       / CFN `MetadataOptions.HttpPutResponseHopLimit`.
 - [ ] **Add Bedrock permissions to the instance role**: `bedrock-mantle:CreateInference`
@@ -464,7 +471,7 @@ Both are one command away: `kubectl get cm flyte-binary-config -n flyte`.
 
 Plus the two things that are the same for everyone and go on the printed handout, not a
 per-attendee card: the Kiro sign-in identity, and the allow-list domains
-(`.workshop.<zone>, .amazoncognito.com`).
+(`.flytedemo.app, .amazoncognito.com`).
 
 Everything else the sandbox reads for itself. The role (paste once, Settings → Agent →
 Sandbox → IAM Role) gives it AWS creds; `bootstrap.sh` uses those to pull
@@ -570,7 +577,7 @@ instructions reference it.
 ## Known sharp edges
 
 **`org` auto-injection.** `flyte create config` derives `org` from any hostname with 3+
-parts — `student01.workshop.union.ai` would silently write `org: student01` into the
+parts — `s0792067a.flytedemo.app` would silently write `org: s0792067a` into the
 config, which the devbox won't know. **`scripts/bootstrap.sh` sidesteps this by writing
 the YAML directly and omitting `org`.** If anyone "helpfully" switches it to
 `flyte create config`, this comes back.

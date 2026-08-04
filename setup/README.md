@@ -12,10 +12,12 @@ Whoever provisions the account runs this once. It needs AWS CLI v2 with credenti
 target account, and a Route 53 hosted zone that your chosen hostname sits under.
 
 ```bash
-bash provisioning/deploy.sh <flyte-domain> <attendee-email> [llama-cloud-key]
+# No arguments needed: the subdomain is derived from the account id (s<hash>.flytedemo.app),
+# self-delegated, and Kiro is enabled end-to-end via API. Just run it in each account:
+bash provisioning/deploy.sh
 
-# e.g.
-bash provisioning/deploy.sh student01.flytedemo.app you@example.com llx-abc123
+# Optional: pin a domain and/or pass a LlamaCloud key (ATTENDEE_EMAIL env overrides the login):
+bash provisioning/deploy.sh student01.flytedemo.app llx-abc123
 ```
 
 It runs two CloudFormation stacks — the Flyte devbox and the Kiro provisioning — and prints

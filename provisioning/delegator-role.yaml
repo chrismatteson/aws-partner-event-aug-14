@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Central subdomain-delegation role + guard. Deploy ONCE in the account that owns the parent
+  Route 53 zone (e.g. flytedemo.app). Attendee accounts -- provisioned independently by AWS
+  Workshop Studio, with NO central credentials and NO per-account action here -- assume this
+  role (gated by an external-id) and call the guard Lambda to delegate <label>.<parent> to the
+  nameservers of a zone they created in their OWN account.
+#
+# Why assume-role and not a Lambda Function URL: Workshop Studio SCPs block cross-org
+# invocation of Function URLs (both NONE and AWS_IAM). Cross-account sts:AssumeRole is NOT
+# blocked, so that is the one channel a locked-down attendee account can use to reach in here.
+#
+# Why a guard Lambda and not raw route53 on the assumed role: the assumed role can ONLY invoke
+# this one function; it has no route53 access of its own. The function enforces "exactly one
+# DNS label under the parent, NS record only." So even a leaked external-id cannot touch the
+# apex, MX, existing student delegations' parent records, or anything but a single-label NS.
+#
+# Nothing secret lives in the public repo. deploy.sh takes DELEGATOR_ROLE_ARN (an identifier,
+# not a secret) and DELEGATION_EXTERNAL_ID (the secret) from the environment at deploy time;
+# the secret is injected by your private Workshop Studio provisioning, never committed.
+
+Parameters:
+  ParentZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: Hosted zone id of the parent domain (e.g. Z0248... for flytedemo.app).
+  ParentDomain:
+    Type: String
+    Default: flytedemo.app
+    Description: The parent domain. Only single-label subdomains of this may be delegated.
+  LabelPattern:
+    Type: String
+    Default: "^s[0-9a-f]{8}$"
+    Description: >
+      Regex a delegated label must match. Default matches deploy.sh's account-id-derived
+      labels s<8-hex> (sha256 of the account id). Widen to e.g.
+      ^(s[0-9a-f]{8}|student[0-9]{1,4})$ to also allow studentNN test names.
+  DelegationExternalId:
+    Type: String
+    NoEcho: true
+    Description: >
+      Shared secret an attendee account must pass as sts:ExternalId to assume the delegator
+      role. Inject the same value into each attendee deploy as DELEGATION_EXTERNAL_ID (via
+      your private Workshop Studio provisioning -- do NOT commit it). Rotate by redeploying
+      this stack with a new value; old value stops working immediately.
+
+Resources:
+  # The role attendee accounts assume. Trust is open (Principal *) but GATED by the external-id
+  # condition, so only holders of the secret can assume it -- and even then the only thing the
+  # role can do is invoke the guard Lambda below.
+  DelegatorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: flytedemo-delegator
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { AWS: "*" }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref DelegationExternalId
+      Policies:
+        - PolicyName: invoke-guard-only
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt DelegatorFn.Arn
+
+  DelegatorFnRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: delegate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: "*"
+              # Scoped to the ONE parent zone. The function's own code further restricts this
+              # to single-label NS records under the parent.
+              - Effect: Allow
+                Action:
+                  - route53:ChangeResourceRecordSets
+                  - route53:ListResourceRecordSets   # read-before-write for first-writer-wins
+                Resource: !Sub "arn:aws:route53:::hostedzone/${ParentZoneId}"
+
+  # The guard. Only DelegatorRole can invoke it (see DelegatorRole's policy + no other grant).
+  # It re-validates every request structurally, so authz at the assume-role layer is backed by
+  # a hard "single-label NS under the parent, nothing else" rule in code.
+  DelegatorFn:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: flytedemo-delegator
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 30
+      Role: !GetAtt DelegatorFnRole.Arn
+      Environment:
+        Variables:
+          PARENT_ZONE_ID: !Ref ParentZoneId
+          PARENT_DOMAIN: !Ref ParentDomain
+          LABEL_PATTERN: !Ref LabelPattern
+      Code:
+        ZipFile: |
+          import os, re, boto3
+          r53 = boto3.client("route53")
+          ZONE_ID = os.environ["PARENT_ZONE_ID"]
+          PARENT = os.environ["PARENT_DOMAIN"].strip(".").lower()
+          LABEL_RE = re.compile(os.environ["LABEL_PATTERN"])
+
+          def result(ok, msg):
+              return {"ok": ok, "message": msg}
+
+          def handler(event, context):
+              # Invoked directly (not via API Gateway), so event IS the payload dict.
+              # The ONLY operation this function can perform is: create/refresh a single-label
+              # NS record under PARENT, pointing at AWS (awsdns) nameservers, first-writer-wins.
+              # It has no other route53 write path, so nothing else in the parent zone is
+              # reachable through it -- not the apex, not MX/TXT/A, not another label's records.
+              sub = str(event.get("subdomain", "")).strip(".").lower()
+              ns = event.get("nameservers") or []
+              if sub.endswith("." + PARENT):
+                  label = sub[: -(len(PARENT) + 1)]
+              elif sub == PARENT:
+                  return result(False, "refusing to delegate the apex")
+              else:
+                  label = sub
+              fqdn = f"{label}.{PARENT}"
+
+              # 1. exactly one DNS label, matching the allowed pattern
+              if "." in label or not LABEL_RE.match(label):
+                  return result(False, f"'{label}' must be a single label under {PARENT} matching {LABEL_RE.pattern}")
+              # 2. 2-6 nameservers, and every one must be an AWS Route 53 (awsdns) host. This
+              #    stops a subdomain being pointed at arbitrary / attacker-controlled nameservers.
+              if not (2 <= len(ns) <= 6):
+                  return result(False, "nameservers must be 2-6 hostnames")
+              ns = [n.rstrip(".").lower() for n in ns if isinstance(n, str)]
+              if len(ns) < 2 or not all("awsdns" in n and "." in n for n in ns):
+                  return result(False, "nameservers must all be AWS Route 53 (awsdns) hostnames")
+
+              # 3. first-writer-wins: if this label is already delegated to DIFFERENT
+              #    nameservers, refuse -- blocks one attendee hijacking another's subdomain.
+              #    Identical NS -> idempotent re-run is fine.
+              existing = r53.list_resource_record_sets(
+                  HostedZoneId=ZONE_ID, StartRecordName=fqdn, StartRecordType="NS", MaxItems="1")
+              for rr in existing.get("ResourceRecordSets", []):
+                  if rr["Name"].rstrip(".").lower() == fqdn and rr["Type"] == "NS":
+                      have = sorted(r["Value"].rstrip(".").lower() for r in rr["ResourceRecords"])
+                      if have != sorted(ns):
+                          return result(False, f"{fqdn} is already delegated; refusing to overwrite")
+
+              r53.change_resource_record_sets(
+                  HostedZoneId=ZONE_ID,
+                  ChangeBatch={"Changes": [{
+                      "Action": "UPSERT",
+                      "ResourceRecordSet": {
+                          "Name": fqdn, "Type": "NS", "TTL": 300,
+                          "ResourceRecords": [{"Value": n} for n in ns],
+                      }}]})
+              return result(True, f"delegated {fqdn}")
+
+Outputs:
+  DelegatorRoleArn:
+    Description: Set this as DELEGATOR_ROLE_ARN in each attendee deploy (not a secret).
+    Value: !GetAtt DelegatorRole.Arn
+  DelegatorFunctionName:
+    Description: Function deploy.sh invokes after assuming the role (defaults to this name).
+    Value: !Ref DelegatorFn

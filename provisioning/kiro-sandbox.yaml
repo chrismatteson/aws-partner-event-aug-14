@@ -63,6 +63,18 @@ Parameters:
     Type: String
     Default: /workshop
     Description: SSM path prefix. Must match SSM_PREFIX in scripts/bootstrap.sh.
+  KiroTier:
+    Type: String
+    Default: pro
+    AllowedValues: [pro, "pro+", power]
+    Description: Kiro subscription tier assigned to the attendee's Identity Center user.
+  KiroNonce:
+    Type: String
+    Default: ""
+    Description: >
+      Changes each deploy (deploy.sh passes a timestamp) so the EnableKiro custom resource
+      re-runs every time -- Kiro enable is idempotent + best-effort, so retrying on each
+      deploy is what we want (e.g. after a one-time console "enable Kiro").
 
 Conditions:
   HasLlamaKey: !Not [!Equals [!Ref LlamaCloudApiKey, ""]]
@@ -296,6 +308,228 @@ Resources:
       SecretArn: !Ref FlytePasswordSecret
 
   # -------------------------------------------------------------------------------------
+  # Kiro Web access, fully in-stack. A custom resource runs the whole "enable Kiro"
+  # sequence -- the same steps the console does, but via API, so no manual UI step:
+  #   1. sso-admin:CreateInstance         -> IAM Identity Center account instance
+  #   2. AWSCodeWhispererService.CreateProfile  -> the Kiro control-plane PROFILE (private
+  #      "Consolas" admin API; without it CreateAssignment => kiro.controlplane NotFound)
+  #   3. iam:CreateServiceLinkedRole      -> AWSServiceRoleForUserSubscriptions
+  #   4. identitystore:CreateUser         -> the attendee's Identity Center user
+  #   5. AmazonQDeveloperService.CreateAssignment -> the Kiro subscription (Pro/Pro+/Power)
+  # Steps 2 and 5 are private, undocumented APIs (SigV4 signing name "q", codewhisperer
+  # endpoint), reverse-engineered from aws/amazon-q-developer-cli. Unsupported; may change.
+  KiroEnableFnRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: kiro-enable
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: "*"
+              # Identity Center instance + users, the SLR, and the private Q Developer /
+              # CodeWhisperer admin API (exact IAM action names for the private ops aren't
+              # documented, so the q/codewhisperer prefixes are granted broadly). Throwaway
+              # per-attendee account.
+              - Effect: Allow
+                Action:
+                  - "sso:*"
+                  - "sso-directory:*"
+                  - "identitystore:*"
+                  - "q:*"
+                  - "codewhisperer:*"
+                  - "user-subscriptions:*"
+                Resource: "*"
+              - Effect: Allow
+                Action: iam:CreateServiceLinkedRole
+                Resource: "*"
+
+  KiroEnableFn:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 300                       # instance activation can take ~2 min
+      Role: !GetAtt KiroEnableFnRole.Arn
+      Code:
+        ZipFile: |
+          import json, os, time, uuid, urllib.request, urllib.error
+          import boto3, botocore.auth, botocore.awsrequest
+
+          TIERS = {"pro":"Q_DEVELOPER_STANDALONE_PRO",
+                   "pro+":"Q_DEVELOPER_STANDALONE_PRO_PLUS",
+                   "power":"Q_DEVELOPER_STANDALONE_POWER"}
+          DBG = []
+          def log(m):
+              print(m); DBG.append(m)
+
+          def send(event, context, status, data=None, reason=None):
+              body = json.dumps({
+                  "Status": status, "Reason": (reason or "see CloudWatch")[:1000],
+                  "PhysicalResourceId": event.get("PhysicalResourceId") or context.log_stream_name,
+                  "StackId": event["StackId"], "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"], "Data": data or {},
+              }).encode()
+              req = urllib.request.Request(event["ResponseURL"], data=body, method="PUT",
+                  headers={"content-type": "", "content-length": str(len(body))})
+              urllib.request.urlopen(req)
+
+          def q_api(region, target, body, sign="q"):
+              # SigV4-signed POST to the private Q Developer / CodeWhisperer admin endpoint. The
+              # signing service DIFFERS by op: AmazonQDeveloperService.* => 'q';
+              # AWSCodeWhispererService.* (profiles) => 'codewhisperer'.
+              c = boto3.Session().get_credentials().get_frozen_credentials()
+              url = "https://codewhisperer.%s.amazonaws.com/" % region
+              payload = json.dumps(body)
+              h = {"Content-Type": "application/x-amz-json-1.0", "X-Amz-Target": target}
+              r = botocore.awsrequest.AWSRequest(method="POST", url=url, data=payload, headers=h)
+              botocore.auth.SigV4Auth(c, sign, region).add_auth(r)
+              req = urllib.request.Request(url, data=payload.encode(), headers=dict(r.headers), method="POST")
+              try:
+                  out = urllib.request.urlopen(req, timeout=30).read().decode()
+                  log("%s [%s] OK: %s" % (target, sign, out[:160]))
+                  return True, out
+              except urllib.error.HTTPError as e:
+                  out = e.read().decode()
+                  log("%s [%s] ERR %d: %s" % (target, sign, e.code, out[:300]))
+                  return False, "HTTP %d: %s" % (e.code, out)
+
+          def ensure_instance(region):
+              # An sso-admin:CreateInstance account instance IS accepted by Kiro as long as
+              # CreateProfile's identitySource uses ssoRegion (not identityStoreId). Deleting an
+              # instance kicks off async SLR cleanup that briefly blocks CreateInstance -> retry.
+              sso = boto3.client("sso-admin", region_name=region)
+              def ready():
+                  for i in sso.list_instances().get("Instances", []):
+                      if i.get("IdentityStoreId"):
+                          return i
+                  return None
+              inst = ready()
+              if not inst:
+                  log("CreateInstance (sso-admin)...")
+                  for _ in range(20):
+                      try:
+                          sso.create_instance(Name="kiro-workshop"); break
+                      except Exception as e:
+                          if "Service-linked role" in str(e) or "Conflict" in str(e):
+                              time.sleep(15); continue
+                          raise
+                  for _ in range(60):
+                      inst = ready()
+                      if inst:
+                          break
+                      time.sleep(2)
+              if not inst:
+                  raise RuntimeError("no usable Identity Center instance")
+              log("instance %s / store %s" % (inst["InstanceArn"], inst["IdentityStoreId"]))
+              return inst
+
+          def ensure_profile(region, iarn):
+              ok, resp = q_api(region, "AWSCodeWhispererService.ListProfiles", {}, "codewhisperer")
+              if ok:
+                  try:
+                      ps = json.loads(resp).get("profiles", [])
+                      if ps:
+                          arn = ps[0].get("arn") or ps[0].get("profileArn")
+                          log("profile exists: %s" % arn)
+                          return arn
+                  except Exception:
+                      pass
+              ok, resp = q_api(region, "AWSCodeWhispererService.CreateProfile", {
+                  "profileName": "kiro-workshop",
+                  "referenceTrackerConfiguration": {"recommendationsWithReferences": "ALLOW"},
+                  "activeFunctionalities": ["ANALYSIS", "CONVERSATIONS", "TASK_ASSIST", "TRANSFORMATIONS", "COMPLETIONS"],
+                  # ssoRegion, NOT identityStoreId -- the wrong field caused "Invalid identity
+                  # center configuration". Confirmed from the console's own CreateProfile call.
+                  "identitySource": {"ssoIdentitySource": {"instanceArn": iarn, "ssoRegion": region}},
+                  "clientToken": str(uuid.uuid4()),
+              }, "codewhisperer")
+              if not ok and "already" not in resp.lower():
+                  raise RuntimeError("CreateProfile: " + resp)
+              try:
+                  return json.loads(resp).get("arn") or json.loads(resp).get("profileArn")
+              except Exception:
+                  return None
+
+          def ensure_user(region, sid, email):
+              ids = boto3.client("identitystore", region_name=region)
+              f = ids.list_users(IdentityStoreId=sid,
+                  Filters=[{"AttributePath": "UserName", "AttributeValue": email}]).get("Users", [])
+              if f:
+                  log("user exists: %s" % email)
+                  return f[0]["UserId"]
+              uid = ids.create_user(IdentityStoreId=sid, UserName=email, DisplayName=email,
+                  Name={"GivenName": "Workshop", "FamilyName": "Attendee"},
+                  Emails=[{"Value": email, "Type": "work", "Primary": True}])["UserId"]
+              log("created user: %s" % email)
+              return uid
+
+          def assign(region, uid, sub, parn):
+              # Right after profile creation the account is briefly "not authorized" -> retry.
+              body = {"principalId": uid, "principalType": "USER", "subscriptionType": sub}
+              if parn:
+                  body["profileArn"] = parn
+              for attempt in range(6):
+                  ok, resp = q_api(region, "AmazonQDeveloperService.CreateAssignment", body, "q")
+                  low = resp.lower()
+                  if ok or "already" in low or "conflict" in low or "invalid state" in low:
+                      return          # 200, or already-subscribed (idempotent)
+                  if "not author" in low and attempt < 5:
+                      time.sleep(10); continue
+                  raise RuntimeError("CreateAssignment: " + resp)
+
+          def handler(event, context):
+              # NEVER fail the stack on a Kiro error: the admin API is private/undocumented and
+              # its account-state prerequisites (e.g. a console-side "enable Kiro") aren't fully
+              # reproducible. Create what we can; report status + a debug trail in the outputs and
+              # CloudWatch so failures are diagnosable without blocking the devbox. Re-run deploy.sh
+              # to retry (e.g. after a one-time console enable).
+              del DBG[:]
+              data = {"KiroStatus": "skipped", "KiroError": "", "KiroInstanceArn": "",
+                      "KiroProfileArn": "", "KiroUserId": "", "KiroDebug": ""}
+              try:
+                  if event["RequestType"] in ("Create", "Update"):
+                      p = event["ResourceProperties"]
+                      region = os.environ["AWS_REGION"]
+                      email = p["Email"]
+                      sub = TIERS.get(p.get("Tier", "pro"), "Q_DEVELOPER_STANDALONE_PRO")
+                      try:
+                          boto3.client("iam").create_service_linked_role(
+                              AWSServiceName="user-subscriptions.amazonaws.com")
+                      except Exception as e:
+                          log("SLR: %s" % str(e)[:120])
+                      inst = ensure_instance(region)
+                      data["KiroInstanceArn"] = inst["InstanceArn"]
+                      parn = ensure_profile(region, inst["InstanceArn"])
+                      data["KiroProfileArn"] = parn or ""
+                      uid = ensure_user(region, inst["IdentityStoreId"], email)
+                      data["KiroUserId"] = uid
+                      assign(region, uid, sub, parn)
+                      data["KiroStatus"] = "ok"
+              except Exception as e:
+                  data["KiroStatus"] = "failed"
+                  data["KiroError"] = str(e)[:400]
+                  log("FAILED: %s" % str(e)[:400])
+              data["KiroDebug"] = " | ".join(DBG)[:900]
+              send(event, context, "SUCCESS", data)   # SUCCESS even on Kiro failure (non-fatal)
+
+  EnableKiro:
+    Type: Custom::KiroEnable
+    Properties:
+      ServiceToken: !GetAtt KiroEnableFn.Arn
+      Email: !Ref AttendeeEmail
+      Tier: !Ref KiroTier
+      Nonce: !Ref KiroNonce    # forces re-run every deploy (idempotent, best-effort)
+
+  # -------------------------------------------------------------------------------------
   # Bedrock for the devbox task pods. Attached to the devbox's own instance role, so LLM
   # calls resolve credentials from the instance role via IMDS — no keys anywhere.
   # Superset covering both the classic Bedrock runtime and the Mantle endpoint.
@@ -343,6 +577,24 @@ Outputs:
   FlyteLoginEmail:
     Description: Username for the Flyte UI.
     Value: !Ref AttendeeEmail
+  KiroStatus:
+    Description: ok | failed | skipped -- outcome of the automated Kiro enable.
+    Value: !GetAtt EnableKiro.KiroStatus
+  KiroError:
+    Description: Error message if KiroStatus is failed (empty otherwise).
+    Value: !GetAtt EnableKiro.KiroError
+  KiroDebug:
+    Description: Step-by-step trace of the Kiro enable (also in the EnableKiro Lambda's CloudWatch logs).
+    Value: !GetAtt EnableKiro.KiroDebug
+  KiroInstanceArn:
+    Description: IAM Identity Center instance used for Kiro.
+    Value: !GetAtt EnableKiro.KiroInstanceArn
+  KiroProfileArn:
+    Description: The Kiro control-plane profile (if created).
+    Value: !GetAtt EnableKiro.KiroProfileArn
+  KiroUserId:
+    Description: Identity Center user id (assign the Kiro subscription; sign in at app.kiro.dev).
+    Value: !GetAtt EnableKiro.KiroUserId
   FlytePassword:
     Description: Password for the Flyte UI login (generated in-stack, set on the Cognito user).
     Value: !GetAtt SetFlytePassword.Password
