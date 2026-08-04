@@ -3,6 +3,23 @@
 Internal. This is what turns Kiro setup from "type eight secrets" into "paste one role
 ARN." Deploy it into each attendee account after the devbox stack.
 
+## Two entrypoints (same result, pick per how AWS deploys)
+
+Both stand an account up end to end — derive `s<hash>.flytedemo.app`, self-delegate its zone,
+bring up the devbox, wire + enable Kiro. They differ only in *how* they're driven:
+
+- **`deploy.sh` — imperative, proven.** One command per account (`bash provisioning/deploy.sh`).
+  Does the orchestration in shell. This is the path that's been run end to end. Use it for
+  manual/scripted runs.
+- **`root.yaml` — pure CloudFormation, for Workshop Studio.** A single template AWS deploys
+  into each account (no shell to run); the `deploy.sh` orchestration is expressed as three tiny
+  custom resources (`Prep` = derive domain + AMI→SSM, `Delegate` = assume-role + guard,
+  `Wire` = fetch the Cognito secret/domain + instance role) plus a native zone and the two
+  nested stacks. Handout values are stack **Outputs**. One-time build: `bash provisioning/publish.sh
+  <s3-bucket>` packages the nested templates to S3 and prints the `TemplatesBaseUrl` +
+  deploy command. **Not yet run end to end** (built while locked out of AWS) — validate it on
+  one account before the fleet; `deploy.sh` remains the fallback.
+
 ## What you can and can't automate
 
 **Kiro Web has no `AWS::Kiro::*` CloudFormation resource** and no admin-push for the

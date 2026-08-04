@@ -1,0 +1,321 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  One-stack, pure-CloudFormation entry point for a workshop account. Deploy THIS into each
+  attendee account (e.g. via AWS Workshop Studio) and it stands the account up end to end --
+  the same thing provisioning/deploy.sh does imperatively, expressed as CloudFormation:
+  derive a unique subdomain from the account id, create + self-delegate its Route 53 zone,
+  bring up the Flyte devbox, wire the Kiro provisioning stack, and enable Kiro via API.
+  No shell orchestration -- CREATE does everything; the handout values are stack Outputs.
+#
+# One-time prerequisites (NOT per-account -- see provisioning/publish.sh):
+#   * The vendored devbox templates + kiro-sandbox.yaml packaged and uploaded to an S3 bucket;
+#     pass that base URL as TemplatesBaseUrl.
+#   * The central delegator role deployed once in the parent-domain account
+#     (provisioning/delegator-role.yaml) -- pass its ARN + external-id.
+#   * The devbox AMI shared to (or public for) the attendee accounts.
+
+Parameters:
+  TemplatesBaseUrl:
+    Type: String
+    Description: >
+      HTTPS S3 base URL holding the packaged nested templates -- expects
+      <base>/devbox-root.yaml and <base>/kiro-sandbox.yaml (see publish.sh).
+  DevboxAmiId:
+    Type: AWS::EC2::Image::Id
+    Description: The (public/shared) Flyte devbox AMI id, us-east-1.
+  DelegatorRoleArn:
+    Type: String
+    Description: ARN of the central flytedemo-delegator role (parent-domain account).
+  DelegationExternalId:
+    Type: String
+    NoEcho: true
+    Description: Shared secret to assume the delegator role.
+  DelegatorFunctionName:
+    Type: String
+    Default: flytedemo-delegator
+    Description: The guard Lambda name the delegator role may invoke.
+  ParentDomain:
+    Type: String
+    Default: flytedemo.app
+    Description: Parent domain; the account's subdomain is s<8hex>.<ParentDomain>.
+  AttendeeEmail:
+    Type: String
+    Default: workshop@flytedemo.app
+    Description: Cognito username for the Flyte console (generic; a throwaway per-account pool).
+  LlamaCloudApiKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: Optional LlamaCloud key for the partner track.
+  KiroTier:
+    Type: String
+    Default: pro
+    AllowedValues: [pro, "pro+", power]
+  AutoStop:
+    Type: String
+    Default: "No"
+    AllowedValues: ["No", "Yes"]
+
+Resources:
+  # ===================================================================================
+  # Prep: derive the account's subdomain (sha256 of the account id) and publish the AMI id
+  # to SSM /flyte-devbox/ami/latest, which the devbox template resolves at changeset time.
+  # Runs before the zone + devbox. Replaces deploy.sh's derive + AMI-preflight steps.
+  # ===================================================================================
+  HelperBaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: [{ Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: sts:AssumeRole }]
+      Policies:
+        - PolicyName: prep
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: "*"
+              - Effect: Allow
+                Action: ssm:PutParameter
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/flyte-devbox/ami/*"
+
+  PrepFn:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 60
+      Role: !GetAtt HelperBaseRole.Arn
+      Code:
+        ZipFile: |
+          import json, os, hashlib, urllib.request, boto3
+          def send(e, c, status, data=None, reason=None):
+              b = json.dumps({"Status": status, "Reason": (reason or "see CloudWatch")[:1000],
+                  "PhysicalResourceId": e.get("PhysicalResourceId") or c.log_stream_name,
+                  "StackId": e["StackId"], "RequestId": e["RequestId"],
+                  "LogicalResourceId": e["LogicalResourceId"], "Data": data or {}}).encode()
+              urllib.request.urlopen(urllib.request.Request(e["ResponseURL"], data=b, method="PUT",
+                  headers={"content-type": "", "content-length": str(len(b))}))
+          def handler(e, c):
+              try:
+                  data = {}
+                  if e["RequestType"] in ("Create", "Update"):
+                      p = e["ResourceProperties"]
+                      acct = boto3.client("sts").get_caller_identity()["Account"]
+                      label = "s" + hashlib.sha256(acct.encode()).hexdigest()[:8]
+                      data["Domain"] = "%s.%s" % (label, p["ParentDomain"])
+                      boto3.client("ssm").put_parameter(Name="/flyte-devbox/ami/latest",
+                          Value=p["AmiId"], Type="String", Overwrite=True)
+                  send(e, c, "SUCCESS", data)
+              except Exception as ex:
+                  send(e, c, "FAILED", reason=str(ex))
+
+  Prep:
+    Type: Custom::Prep
+    Properties:
+      ServiceToken: !GetAtt PrepFn.Arn
+      ParentDomain: !Ref ParentDomain
+      AmiId: !Ref DevboxAmiId
+
+  # ===================================================================================
+  # The account's own Route 53 zone (native -- CloudFormation owns its lifecycle), named
+  # from the derived domain. Only public once its NS is delegated from the parent (below).
+  # ===================================================================================
+  Zone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: !GetAtt Prep.Domain
+
+  # ===================================================================================
+  # Delegate: assume the central delegator role (external-id gated) and invoke its guard to
+  # write the one NS record in the parent zone. Replaces deploy.sh's assume-role block.
+  # DependsOn Zone so the nameservers exist. Must finish before the devbox (ACM validation).
+  # ===================================================================================
+  DelegateRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: [{ Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: sts:AssumeRole }]
+      Policies:
+        - PolicyName: delegate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: "*"
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource: !Ref DelegatorRoleArn
+
+  DelegateFn:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 120
+      Role: !GetAtt DelegateRole.Arn
+      Code:
+        ZipFile: |
+          import json, urllib.request, boto3
+          def send(e, c, status, data=None, reason=None):
+              b = json.dumps({"Status": status, "Reason": (reason or "see CloudWatch")[:1000],
+                  "PhysicalResourceId": e.get("PhysicalResourceId") or c.log_stream_name,
+                  "StackId": e["StackId"], "RequestId": e["RequestId"],
+                  "LogicalResourceId": e["LogicalResourceId"], "Data": data or {}}).encode()
+              urllib.request.urlopen(urllib.request.Request(e["ResponseURL"], data=b, method="PUT",
+                  headers={"content-type": "", "content-length": str(len(b))}))
+          def handler(e, c):
+              try:
+                  if e["RequestType"] in ("Create", "Update"):
+                      p = e["ResourceProperties"]
+                      cr = boto3.client("sts").assume_role(RoleArn=p["RoleArn"],
+                          RoleSessionName="ws-delegate", ExternalId=p["ExternalId"])["Credentials"]
+                      lam = boto3.client("lambda", region_name="us-east-1",
+                          aws_access_key_id=cr["AccessKeyId"], aws_secret_access_key=cr["SecretAccessKey"],
+                          aws_session_token=cr["SessionToken"])
+                      r = lam.invoke(FunctionName=p["FunctionName"], Payload=json.dumps(
+                          {"subdomain": p["Domain"], "nameservers": p["NameServers"]}).encode())
+                      body = json.loads(r["Payload"].read())
+                      if not body.get("ok"):
+                          raise RuntimeError("delegator rejected: %s" % body.get("message"))
+                  send(e, c, "SUCCESS")
+                  # NOTE: Delete is a no-op -- the guard only UPSERTs. A stale parent NS record
+                  # to a deleted zone is harmless (NXDOMAIN). Clean the parent zone at teardown.
+              except Exception as ex:
+                  send(e, c, "FAILED", reason=str(ex))
+
+  Delegate:
+    Type: Custom::Delegate
+    DependsOn: Zone
+    Properties:
+      ServiceToken: !GetAtt DelegateFn.Arn
+      RoleArn: !Ref DelegatorRoleArn
+      ExternalId: !Ref DelegationExternalId
+      FunctionName: !Ref DelegatorFunctionName
+      Domain: !GetAtt Prep.Domain
+      NameServers: !GetAtt Zone.NameServers
+
+  # ===================================================================================
+  # The Flyte devbox (vendored marketplace template, nested). Needs the delegated zone for
+  # ACM validation and the AMI in SSM (both above), hence DependsOn Prep + Delegate.
+  # ===================================================================================
+  DevboxStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: [Prep, Delegate]
+    Properties:
+      TemplateURL: !Sub "${TemplatesBaseUrl}/devbox-root.yaml"
+      Parameters:
+        Domain: !GetAtt Prep.Domain
+        AutoStop: !Ref AutoStop
+      TimeoutInMinutes: 40
+
+  # ===================================================================================
+  # Wire: pull the values kiro-sandbox needs that aren't clean devbox outputs -- the Cognito
+  # M2M client secret, the hosted-UI domain, and the devbox instance role name. Same fetches
+  # deploy.sh does (describe-user-pool-client / describe-user-pool / find the instance role).
+  # ===================================================================================
+  WireRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: [{ Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: sts:AssumeRole }]
+      Policies:
+        - PolicyName: wire
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - cognito-idp:DescribeUserPoolClient
+                  - cognito-idp:DescribeUserPool
+                  - cloudformation:DescribeStackResources
+                Resource: "*"
+
+  WireFn:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 60
+      Role: !GetAtt WireRole.Arn
+      Code:
+        ZipFile: |
+          import json, urllib.request, boto3
+          def send(e, c, status, data=None, reason=None):
+              b = json.dumps({"Status": status, "Reason": (reason or "see CloudWatch")[:1000],
+                  "PhysicalResourceId": e.get("PhysicalResourceId") or c.log_stream_name,
+                  "StackId": e["StackId"], "RequestId": e["RequestId"],
+                  "LogicalResourceId": e["LogicalResourceId"], "Data": data or {}}).encode()
+              urllib.request.urlopen(urllib.request.Request(e["ResponseURL"], data=b, method="PUT",
+                  headers={"content-type": "", "content-length": str(len(b))}))
+          def handler(e, c):
+              try:
+                  data = {}
+                  if e["RequestType"] in ("Create", "Update"):
+                      p = e["ResourceProperties"]; region = p["Region"]
+                      cog = boto3.client("cognito-idp", region_name=region)
+                      data["ClientSecret"] = cog.describe_user_pool_client(
+                          UserPoolId=p["UserPoolId"], ClientId=p["ClientId"])["UserPoolClient"]["ClientSecret"]
+                      dom = cog.describe_user_pool(UserPoolId=p["UserPoolId"])["UserPool"]["Domain"]
+                      data["CognitoDomain"] = "https://%s.auth.%s.amazoncognito.com" % (dom, region)
+                      cfn = boto3.client("cloudformation", region_name=region)
+                      roles = [r["PhysicalResourceId"] for r in
+                               cfn.describe_stack_resources(StackName=p["DevboxStackId"])["StackResources"]
+                               if r["LogicalResourceId"] == "InstanceRole"]
+                      data["InstanceRoleName"] = roles[0] if roles else ""
+                  send(e, c, "SUCCESS", data)
+              except Exception as ex:
+                  send(e, c, "FAILED", reason=str(ex))
+
+  Wire:
+    Type: Custom::Wire
+    Properties:
+      ServiceToken: !GetAtt WireFn.Arn
+      Region: !Ref AWS::Region
+      UserPoolId: !GetAtt DevboxStack.Outputs.CognitoUserPoolId
+      ClientId: !GetAtt DevboxStack.Outputs.CognitoM2MClientId
+      DevboxStackId: !Ref DevboxStack
+
+  # ===================================================================================
+  # Kiro provisioning (sandbox role + SSM + Cognito login + Bedrock + ECR + EnableKiro).
+  # ===================================================================================
+  SandboxStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "${TemplatesBaseUrl}/kiro-sandbox.yaml"
+      Parameters:
+        FlyteDomain: !GetAtt Prep.Domain
+        CognitoDomain: !GetAtt Wire.CognitoDomain
+        CognitoClientId: !GetAtt DevboxStack.Outputs.CognitoM2MClientId
+        CognitoClientSecret: !GetAtt Wire.ClientSecret
+        CognitoUserPoolId: !GetAtt DevboxStack.Outputs.CognitoUserPoolId
+        DevboxInstanceRoleName: !GetAtt Wire.InstanceRoleName
+        AttendeeEmail: !Ref AttendeeEmail
+        KiroTier: !Ref KiroTier
+        KiroNonce: !Ref AWS::StackId
+        LlamaCloudApiKey: !Ref LlamaCloudApiKey
+
+Outputs:
+  Domain:
+    Description: The account's derived subdomain.
+    Value: !GetAtt Prep.Domain
+  FlyteUiUrl:
+    Value: !Sub "https://${Prep.Domain}/v2"
+  KiroSandboxRoleArn:
+    Description: Paste into Kiro Web -- Settings > Agent > Sandbox > IAM Role.
+    Value: !GetAtt SandboxStack.Outputs.KiroSandboxRoleArn
+  FlyteLoginEmail:
+    Value: !Ref AttendeeEmail
+  FlytePassword:
+    Value: !GetAtt SandboxStack.Outputs.FlytePassword
+  KiroStatus:
+    Value: !GetAtt SandboxStack.Outputs.KiroStatus
+  KiroUserId:
+    Value: !GetAtt SandboxStack.Outputs.KiroUserId
