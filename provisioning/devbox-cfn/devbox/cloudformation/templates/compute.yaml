@@ -347,7 +347,8 @@ Resources:
         LaunchTemplateId: !Ref LaunchTemplate
         Version: !GetAtt LaunchTemplate.LatestVersionNumber
       SubnetId: !Ref PublicSubnetId
-      AvailabilityZone: !Select [0, !GetAZs ""]
+      # AZ is determined by SubnetId (no explicit AvailabilityZone -- specifying both risks a
+      # mismatch, and the subnet is the single source of truth for the instance's AZ).
       # The data volume is NOT attached here: user-data self-attaches it by ID at
       # boot. This keeps the instance freely replaceable (user-data changes apply
       # via in-place update-stack) instead of failing the EBS attach during the
