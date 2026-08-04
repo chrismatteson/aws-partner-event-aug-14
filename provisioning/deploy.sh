@@ -28,6 +28,11 @@
 #   DEVBOX_AMI_ID    explicit AMI id. Set this in a bare account that has nothing in SSM
 #                    /flyte-devbox/ami/latest (e.g. a shared/public AMI); skips the SSM
 #                    preflight and passes AmiId to the stack.
+#   DELEGATION_URL   central delegation service endpoint (provisioning/delegation-service.yaml).
+#   DELEGATION_TOKEN shared token for it. When both are set, deploy.sh creates a hosted zone
+#                    for <flyte-domain> IN THIS account and delegates it from the parent via
+#                    the service -- so a bare account needs no pre-existing zone. When unset,
+#                    <flyte-domain> is assumed already resolvable (an existing zone).
 
 set -euo pipefail
 export AWS_PAGER=""
@@ -67,6 +72,37 @@ if [ -n "$DEVBOX_AMI_ID" ]; then
 else
     aws ssm get-parameter --name /flyte-devbox/ami/latest --query Parameter.Value --output text >/dev/null 2>&1 \
         || fail "SSM /flyte-devbox/ami/latest not found in $REGION, and DEVBOX_AMI_ID is unset. Either publish the AMI to SSM, or set DEVBOX_AMI_ID to a shared/public devbox AMI id."
+fi
+
+# --- DNS: ensure an in-account zone for the domain, delegated from the parent ------------
+# The devbox's ACM cert and *.apps wildcard need <flyte-domain> publicly resolvable. In a
+# bare account we create the hosted zone here and delegate ONE NS record from the central
+# parent via the delegation service. Idempotent: an existing zone is reused.
+ZONE_ID=$(aws route53 list-hosted-zones-by-name --dns-name "$FLYTE_DOMAIN" \
+    --query "HostedZones[?Name=='${FLYTE_DOMAIN}.'].Id | [0]" --output text 2>/dev/null)
+if [ -z "$ZONE_ID" ] || [ "$ZONE_ID" = "None" ]; then
+    step "Creating hosted zone for $FLYTE_DOMAIN..."
+    ZONE_ID=$(aws route53 create-hosted-zone --name "$FLYTE_DOMAIN" \
+        --caller-reference "ws-${FLYTE_DOMAIN}-$$-${RANDOM}" \
+        --query 'HostedZone.Id' --output text) || fail "couldn't create the hosted zone."
+else
+    echo "Reusing existing hosted zone $ZONE_ID for $FLYTE_DOMAIN."
+fi
+ZONE_NS=$(aws route53 get-hosted-zone --id "$ZONE_ID" --query 'DelegationSet.NameServers' --output json)
+
+if [ -n "${DELEGATION_URL:-}" ] && [ -n "${DELEGATION_TOKEN:-}" ]; then
+    step "Delegating $FLYTE_DOMAIN via the delegation service..."
+    DELEG_BODY=$(printf '{"token":"%s","subdomain":"%s","nameservers":%s}' \
+        "$DELEGATION_TOKEN" "$FLYTE_DOMAIN" "$ZONE_NS")
+    curl -fsS -X POST "$DELEGATION_URL" -H 'content-type: application/json' -d "$DELEG_BODY" \
+        || fail "delegation call failed (check DELEGATION_URL / DELEGATION_TOKEN)."
+    echo ""
+    # Give the NS delegation a moment to propagate so ACM validation isn't slow to start.
+    echo "   waiting ~30s for delegation to propagate..."; sleep 30
+else
+    echo "DELEGATION_URL/TOKEN not set -- assuming $FLYTE_DOMAIN is already delegated."
+    echo "   (to delegate manually, add these NS to the parent zone for $FLYTE_DOMAIN:"
+    echo "    $(echo "$ZONE_NS" | tr -d '[]\n" ' | tr ',' ' '))"
 fi
 
 # --- 1. devbox stack (vendored, nested template) ----------------------------------------
@@ -140,16 +176,28 @@ aws cloudformation deploy \
 # --- the handout ------------------------------------------------------------------------
 sbout() { aws cloudformation describe-stacks --stack-name "$SANDBOX_STACK" \
             --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+ROLE_ARN=$(sbout KiroSandboxRoleArn)
+UI_URL=$(sbout FlyteUiUrl)
+LOGIN_EMAIL=$(sbout FlyteLoginEmail)
+LOGIN_PASS=$(sbout FlytePassword)
+ALLOWLIST=".$(echo "$FLYTE_DOMAIN" | cut -d. -f2-), .amazoncognito.com"
+MCP_ARGS="-y mcp-remote https://flyte-mcp.apps.demo.hosted.unionai.cloud/flyte-mcp/mcp"
 cat <<EOF
 
-============================================================================
-  Ready. Give these to the attendee for setup/00-kiro-web.md:
+================================================================================
+  $FLYTE_DOMAIN is ready. Everything the attendee needs (see setup/):
 
-  Sandbox IAM Role ARN : $(sbout KiroSandboxRoleArn)
-  Flyte UI URL         : $(sbout FlyteUiUrl)
-  Flyte login (email)  : $(sbout FlyteLoginEmail)
-  Flyte login (pass)   : $(sbout FlytePassword)
+  FLYTE CONSOLE  (the devbox UI -- where you verify executions)
+    URL       : $UI_URL
+    login     : $LOGIN_EMAIL
+    password  : $LOGIN_PASS
 
-  Network allow-list (same for everyone): .$(echo "$FLYTE_DOMAIN" | cut -d. -f2-), .amazoncognito.com
-============================================================================
+  KIRO WEB  (the agent -- https://app.kiro.dev)
+    Sandbox IAM Role ARN : $ROLE_ARN
+      (paste at Settings > Agent > Sandbox > IAM Role)
+    Network allow-list   : $ALLOWLIST
+    MCP server (local)   : command 'npx', args '$MCP_ARGS'
+
+  THEN, in a Kiro task:  Run bash scripts/bootstrap.sh
+================================================================================
 EOF
