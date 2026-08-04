@@ -175,6 +175,7 @@ def ensure_profile(session, region, instance_arn):
     'enable Kiro' creates, and what CreateAssignment needs (else kiro.controlplane
     ResourceNotFound). Idempotent via ListProfiles. Uses the private Consolas admin API
     (AWSCodeWhispererService.*), reverse-engineered from aws/amazon-q-developer-cli."""
+    arn = None
     ok, resp = _q_api(session, region, "AWSCodeWhispererService.ListProfiles", {},
                       signing_name="codewhisperer")
     if ok:
@@ -183,27 +184,41 @@ def ensure_profile(session, region, instance_arn):
             if profiles:
                 arn = profiles[0].get("arn") or profiles[0].get("profileArn")
                 print(f"Kiro profile (existing): {arn}")
-                return arn
         except Exception:
             pass
-    print("no Kiro profile -> creating one (AWSCodeWhispererService.CreateProfile)...")
-    ok, resp = _q_api(session, region, "AWSCodeWhispererService.CreateProfile", {
-        "profileName": "kiro-workshop",
-        "referenceTrackerConfiguration": {"recommendationsWithReferences": "ALLOW"},
-        "activeFunctionalities": ["ANALYSIS", "CONVERSATIONS", "TASK_ASSIST", "TRANSFORMATIONS", "COMPLETIONS"],
-        # ssoRegion, NOT identityStoreId -- the wrong field is what caused "Invalid identity
-        # center configuration". Confirmed against the console's own CreateProfile call.
-        "identitySource": {"ssoIdentitySource": {"instanceArn": instance_arn, "ssoRegion": region}},
-        "clientToken": str(uuid.uuid4()),
-    }, signing_name="codewhisperer")
-    if not ok and "already" not in resp.lower():
-        die(f"CreateProfile failed: {resp}")
-    arn = None
-    try:
-        arn = json.loads(resp).get("arn") or json.loads(resp).get("profileArn")
-    except Exception:
-        pass
-    print(f"Kiro profile: {arn or '(created)'}")
+    if not arn:
+        print("no Kiro profile -> creating one (AWSCodeWhispererService.CreateProfile)...")
+        ok, resp = _q_api(session, region, "AWSCodeWhispererService.CreateProfile", {
+            "profileName": "kiro-workshop",
+            "referenceTrackerConfiguration": {"recommendationsWithReferences": "ALLOW"},
+            "activeFunctionalities": ["ANALYSIS", "CONVERSATIONS", "TASK_ASSIST", "TRANSFORMATIONS", "COMPLETIONS"],
+            # ssoRegion, NOT identityStoreId -- the wrong field is what caused "Invalid identity
+            # center configuration". Confirmed against the console's own CreateProfile call.
+            "identitySource": {"ssoIdentitySource": {"instanceArn": instance_arn, "ssoRegion": region}},
+            "clientToken": str(uuid.uuid4()),
+        }, signing_name="codewhisperer")
+        if not ok and "already" not in resp.lower():
+            die(f"CreateProfile failed: {resp}")
+        try:
+            arn = json.loads(resp).get("arn") or json.loads(resp).get("profileArn")
+        except Exception:
+            pass
+        print(f"Kiro profile: {arn or '(created)'}")
+    # Enable Kiro Web (autonomous agents) on the profile. CreateProfile does NOT set it -- the
+    # console does a follow-up UpdateProfile with optInFeatures.autonomousAgents.toggle=ON, and
+    # without it app.kiro.dev Web isn't enabled. (Payload confirmed from the console's HAR.)
+    if arn:
+        ok, resp = _q_api(session, region, "AWSCodeWhispererService.UpdateProfile", {
+            "profileArn": arn,
+            "profileName": "kiro-workshop",
+            "identitySource": {"ssoIdentitySource": {"instanceArn": instance_arn, "ssoRegion": region}},
+            "optInFeatures": {"overageConfiguration": {"overageStatus": "DISABLED"},
+                              "autonomousAgents": {"toggle": "ON"}},
+            "optInFeaturesType": "KIRO",
+            "referenceTrackerConfiguration": {"recommendationsWithReferences": "ALLOW"},
+            "activeFunctionalities": ["ANALYSIS", "CONVERSATIONS", "TASK_ASSIST", "TRANSFORMATIONS", "COMPLETIONS"],
+        }, signing_name="codewhisperer")
+        print(f"Kiro Web (autonomous agents): {'ON' if ok else 'FAILED: ' + resp[:140]}")
     return arn
 
 

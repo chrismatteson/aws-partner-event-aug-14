@@ -433,6 +433,7 @@ Resources:
               return inst
 
           def ensure_profile(region, iarn):
+              arn = None
               ok, resp = q_api(region, "AWSCodeWhispererService.ListProfiles", {}, "codewhisperer")
               if ok:
                   try:
@@ -440,24 +441,39 @@ Resources:
                       if ps:
                           arn = ps[0].get("arn") or ps[0].get("profileArn")
                           log("profile exists: %s" % arn)
-                          return arn
                   except Exception:
                       pass
-              ok, resp = q_api(region, "AWSCodeWhispererService.CreateProfile", {
-                  "profileName": "kiro-workshop",
-                  "referenceTrackerConfiguration": {"recommendationsWithReferences": "ALLOW"},
-                  "activeFunctionalities": ["ANALYSIS", "CONVERSATIONS", "TASK_ASSIST", "TRANSFORMATIONS", "COMPLETIONS"],
-                  # ssoRegion, NOT identityStoreId -- the wrong field caused "Invalid identity
-                  # center configuration". Confirmed from the console's own CreateProfile call.
-                  "identitySource": {"ssoIdentitySource": {"instanceArn": iarn, "ssoRegion": region}},
-                  "clientToken": str(uuid.uuid4()),
-              }, "codewhisperer")
-              if not ok and "already" not in resp.lower():
-                  raise RuntimeError("CreateProfile: " + resp)
-              try:
-                  return json.loads(resp).get("arn") or json.loads(resp).get("profileArn")
-              except Exception:
-                  return None
+              if not arn:
+                  ok, resp = q_api(region, "AWSCodeWhispererService.CreateProfile", {
+                      "profileName": "kiro-workshop",
+                      "referenceTrackerConfiguration": {"recommendationsWithReferences": "ALLOW"},
+                      "activeFunctionalities": ["ANALYSIS", "CONVERSATIONS", "TASK_ASSIST", "TRANSFORMATIONS", "COMPLETIONS"],
+                      # ssoRegion, NOT identityStoreId -- the wrong field caused "Invalid identity
+                      # center configuration". Confirmed from the console's own CreateProfile call.
+                      "identitySource": {"ssoIdentitySource": {"instanceArn": iarn, "ssoRegion": region}},
+                      "clientToken": str(uuid.uuid4()),
+                  }, "codewhisperer")
+                  if not ok and "already" not in resp.lower():
+                      raise RuntimeError("CreateProfile: " + resp)
+                  try:
+                      arn = json.loads(resp).get("arn") or json.loads(resp).get("profileArn")
+                  except Exception:
+                      arn = None
+              # Enable Kiro Web (autonomous agents). CreateProfile does NOT set it -- the console
+              # follows up with UpdateProfile optInFeatures.autonomousAgents.toggle=ON (from HAR).
+              if arn:
+                  ok, resp = q_api(region, "AWSCodeWhispererService.UpdateProfile", {
+                      "profileArn": arn,
+                      "profileName": "kiro-workshop",
+                      "identitySource": {"ssoIdentitySource": {"instanceArn": iarn, "ssoRegion": region}},
+                      "optInFeatures": {"overageConfiguration": {"overageStatus": "DISABLED"},
+                                        "autonomousAgents": {"toggle": "ON"}},
+                      "optInFeaturesType": "KIRO",
+                      "referenceTrackerConfiguration": {"recommendationsWithReferences": "ALLOW"},
+                      "activeFunctionalities": ["ANALYSIS", "CONVERSATIONS", "TASK_ASSIST", "TRANSFORMATIONS", "COMPLETIONS"],
+                  }, "codewhisperer")
+                  log("autonomous agents ON" if ok else "autonomousAgents FAILED: " + resp[:140])
+              return arn
 
           def ensure_user(region, sid, email):
               ids = boto3.client("identitystore", region_name=region)

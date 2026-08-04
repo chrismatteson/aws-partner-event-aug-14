@@ -55,6 +55,10 @@ Parameters:
     Type: String
     Default: "No"
     AllowedValues: ["No", "Yes"]
+  InstanceType:
+    Type: String
+    Default: m6i.2xlarge
+    Description: EC2 instance type for the devbox host (default m6i.2xlarge = 8 vCPU / 32 GB).
 
 Resources:
   # ===================================================================================
@@ -210,6 +214,7 @@ Resources:
       Parameters:
         Domain: !GetAtt Prep.Domain
         AutoStop: !Ref AutoStop
+        InstanceType: !Ref InstanceType
         # Nested stack names contain uppercase; force a lowercase base for the S3 bucket /
         # ECR namespace / Cognito domain (all lowercase-only). Bucket -> flyte-<acct>-<region>,
         # Cognito -> flyte-<acct>: unique per account.

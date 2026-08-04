@@ -159,7 +159,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref Vpc
-      AvailabilityZone: !Select [0, !GetAZs ""]
+      AvailabilityZone: !Select [2, !GetAZs ""]
       CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 1, 8]]
       MapPublicIpOnLaunch: true
       Tags: [{Key: Name, Value: !Sub "${AWS::StackName}-public"}]
@@ -340,7 +340,7 @@ Resources:
     DeletionPolicy: Snapshot
     UpdateReplacePolicy: Snapshot
     Properties:
-      AvailabilityZone: !Select [0, !GetAZs ""]
+      AvailabilityZone: !Select [2, !GetAZs ""]
       Size: !Ref DataVolumeSizeGb
       VolumeType: gp3
       Encrypted: true
