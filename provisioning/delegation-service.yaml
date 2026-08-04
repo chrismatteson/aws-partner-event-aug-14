@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Central subdomain-delegation service. Deploy ONCE in the account that owns the parent
+  Route 53 zone (e.g. flytedemo.app). It exposes a token-authenticated HTTPS endpoint that
+  an attendee's deploy.sh calls to delegate <label>.<parent> to the nameservers of a zone
+  the attendee created in their OWN account — so attendee deploys need no central AWS
+  credentials, just the URL + token.
+#
+# Flow: attendee account creates a Route 53 zone for student07.flytedemo.app -> AWS assigns
+# it 4 nameservers -> deploy.sh POSTs {token, subdomain, nameservers} here -> this Lambda
+# UPSERTs an NS record in flytedemo.app delegating that subdomain. Now the attendee's
+# in-account zone is publicly resolvable; their ACM cert validates and *.apps works.
+
+Parameters:
+  ParentZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: Hosted zone id of the parent domain (e.g. Z0248... for flytedemo.app).
+  ParentDomain:
+    Type: String
+    Default: flytedemo.app
+    Description: The parent domain. Only subdomains ending in this may be delegated.
+  DelegationToken:
+    Type: String
+    NoEcho: true
+    Description: >
+      Shared secret the caller must present. Put the same value in deploy.sh
+      (DELEGATION_TOKEN). Rotate/redeploy to revoke. Anyone with the URL + token can
+      delegate a subdomain of the parent, so treat it like a workshop-scoped credential.
+
+Resources:
+  DelegatorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: delegate
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: "*"
+              # Scoped to the ONE parent zone. The Lambda can only touch this zone, and
+              # its own code only ever writes NS records for labels under the parent.
+              - Effect: Allow
+                Action: route53:ChangeResourceRecordSets
+                Resource: !Sub "arn:aws:route53:::hostedzone/${ParentZoneId}"
+
+  DelegatorFn:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 30
+      Role: !GetAtt DelegatorRole.Arn
+      Environment:
+        Variables:
+          PARENT_ZONE_ID: !Ref ParentZoneId
+          PARENT_DOMAIN: !Ref ParentDomain
+          TOKEN: !Ref DelegationToken
+      Code:
+        ZipFile: |
+          import json, os, hmac, re, boto3
+          r53 = boto3.client("route53")
+          ZONE_ID = os.environ["PARENT_ZONE_ID"]
+          PARENT = os.environ["PARENT_DOMAIN"].strip(".").lower()
+          TOKEN = os.environ["TOKEN"]
+          LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+
+          def resp(code, msg):
+              return {"statusCode": code, "headers": {"content-type": "application/json"},
+                      "body": json.dumps({"message": msg})}
+
+          def handler(event, context):
+              try:
+                  body = json.loads(event.get("body") or "{}")
+              except Exception:
+                  return resp(400, "invalid json body")
+              if not hmac.compare_digest(str(body.get("token", "")), TOKEN):
+                  return resp(403, "bad token")
+
+              sub = str(body.get("subdomain", "")).strip(".").lower()
+              ns = body.get("nameservers") or []
+              # accept either the full fqdn (student07.flytedemo.app) or just the label
+              if sub.endswith("." + PARENT):
+                  label = sub[: -(len(PARENT) + 1)]
+              elif sub == PARENT:
+                  return resp(400, "refusing to delegate the apex")
+              else:
+                  label = sub
+              fqdn = f"{label}.{PARENT}"
+
+              # guardrails: exactly one DNS label, and a sane NS list
+              if "." in label or not LABEL_RE.match(label):
+                  return resp(400, f"subdomain must be a single label under {PARENT}")
+              if not (2 <= len(ns) <= 6) or not all(isinstance(n, str) and "." in n for n in ns):
+                  return resp(400, "nameservers must be 2-6 hostnames")
+
+              r53.change_resource_record_sets(
+                  HostedZoneId=ZONE_ID,
+                  ChangeBatch={"Changes": [{
+                      "Action": "UPSERT",
+                      "ResourceRecordSet": {
+                          "Name": fqdn, "Type": "NS", "TTL": 300,
+                          "ResourceRecords": [{"Value": n.rstrip(".")} for n in ns],
+                      }}]})
+              return resp(200, f"delegated {fqdn}")
+
+  # Public HTTPS endpoint (default *.lambda-url domain, AWS-trusted cert). Auth is the
+  # shared token in the request body, checked in the handler — so AuthType is NONE.
+  DelegatorUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt DelegatorFn.Arn
+      AuthType: NONE
+
+  DelegatorUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DelegatorFn
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+Outputs:
+  DelegationUrl:
+    Description: Put this in deploy.sh as DELEGATION_URL.
+    Value: !GetAtt DelegatorUrl.FunctionUrl

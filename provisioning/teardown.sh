@@ -42,44 +42,44 @@ if [ "${FORCE:-}" != "yes" ]; then
     [ "$c" = "$ACCOUNT_ID" ] || { echo "aborted."; exit 1; }
 fi
 
-# 1. Sandbox stack FIRST — it attaches an inline policy to the devbox instance role and
+# 1. Sandbox stack FIRST -- it attaches an inline policy to the devbox instance role and
 #    owns the SSM params, the login user, and the ECR create-on-push template.
-step "Deleting $SANDBOX_STACK…"
+step "Deleting $SANDBOX_STACK..."
 aws cloudformation delete-stack --stack-name "$SANDBOX_STACK"
 aws cloudformation wait stack-delete-complete --stack-name "$SANDBOX_STACK" 2>/dev/null \
-    && echo "   gone" || echo "   (already gone or wait timed out — check the console)"
+    && echo "   gone" || echo "   (already gone or wait timed out -- check the console)"
 
-# 2. Devbox stack — terminates EC2/ALB/Cognito; Retains S3/ECR/EBS; snapshots Aurora.
-step "Deleting $DEVBOX_STACK… (a few minutes)"
+# 2. Devbox stack -- terminates EC2/ALB/Cognito; Retains S3/ECR/EBS; snapshots Aurora.
+step "Deleting $DEVBOX_STACK... (a few minutes)"
 aws cloudformation delete-stack --stack-name "$DEVBOX_STACK"
 aws cloudformation wait stack-delete-complete --stack-name "$DEVBOX_STACK" 2>/dev/null \
-    && echo "   gone" || echo "   (still deleting or errored — check the console before continuing)"
+    && echo "   gone" || echo "   (still deleting or errored -- check the console before continuing)"
 
 # 3. Retained S3 buckets (empty then delete).
 for b in "$WORKSHOP_BUCKET" "$STAGING_BUCKET"; do
     if aws s3api head-bucket --bucket "$b" 2>/dev/null; then
-        step "Emptying + deleting bucket $b…"
+        step "Emptying + deleting bucket $b..."
         aws s3 rm "s3://$b" --recursive >/dev/null 2>&1
         aws s3api delete-bucket --bucket "$b" && echo "   deleted"
     fi
 done
 
 # 4. ECR repositories (the devbox repo + anything create-on-push made). This deletes ALL
-#    repos in the region — safe for a dedicated throwaway account; comment out if sharing one.
-step "Deleting ECR repositories in $REGION…"
+#    repos in the region -- safe for a dedicated throwaway account; comment out if sharing one.
+step "Deleting ECR repositories in $REGION..."
 for r in $(aws ecr describe-repositories --query 'repositories[].repositoryName' --output text 2>/dev/null); do
     aws ecr delete-repository --repository-name "$r" --force >/dev/null 2>&1 && echo "   deleted $r"
 done
 
 # 5. The Retained EBS data volume (becomes 'available' once the stack detaches it).
-step "Deleting EBS volumes tagged for $DEVBOX_STACK…"
+step "Deleting EBS volumes tagged for $DEVBOX_STACK..."
 for v in $(aws ec2 describe-volumes \
         --query "Volumes[?Tags[?contains(Value,'$DEVBOX_STACK')]].VolumeId" --output text 2>/dev/null); do
     aws ec2 delete-volume --volume-id "$v" >/dev/null 2>&1 && echo "   deleted $v"
 done
 
 # 6. Aurora final snapshot(s) taken at stack delete.
-step "Deleting Aurora snapshots for $DEVBOX_STACK…"
+step "Deleting Aurora snapshots for $DEVBOX_STACK..."
 for s in $(aws rds describe-db-cluster-snapshots \
         --query "DBClusterSnapshots[?contains(DBClusterSnapshotIdentifier,'$DEVBOX_STACK')].DBClusterSnapshotIdentifier" \
         --output text 2>/dev/null); do

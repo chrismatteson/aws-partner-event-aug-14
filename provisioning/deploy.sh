@@ -6,8 +6,8 @@
 # Example:
 #   bash provisioning/deploy.sh student01.flytedemo.app you@example.com llx-abc123
 #
-# It runs two CloudFormation stacks — the Flyte devbox (from the flyte-aws-marketplace
-# template) and the Kiro provisioning (provisioning/kiro-sandbox.yaml) — and prints the
+# It runs two CloudFormation stacks -- the Flyte devbox (from the flyte-aws-marketplace
+# template) and the Kiro provisioning (provisioning/kiro-sandbox.yaml) -- and prints the
 # four values setup/00-kiro-web.md needs. There is nothing imperative here beyond wiring
 # one stack's outputs into the next; both stacks are plain CloudFormation.
 #
@@ -17,14 +17,17 @@
 #   * The devbox AMI published to SSM /flyte-devbox/ami/latest in the region.
 #
 # Knobs (env vars):
-#   AWS_REGION       target region (default us-east-1 — Kiro Web + Bedrock live here)
-#   AUTOSTOP         Yes|No — devbox idle auto-stop. DEFAULT No, so it never sleeps and
+#   AWS_REGION       target region (default us-east-1 -- Kiro Web + Bedrock live here)
+#   AUTOSTOP         Yes|No -- devbox idle auto-stop. DEFAULT No, so it never sleeps and
 #                    there are no ~2-minute wake delays mid-workshop. Set AUTOSTOP=Yes to
 #                    save money on a long-lived box (it stops after ~30 min idle, wakes on
 #                    the next request).
 #   DEVBOX_STACK     devbox stack name   (default flyte-devbox-workshop)
 #   SANDBOX_STACK    provisioning stack  (default kiro-sandbox)
 #   STAGING_BUCKET   S3 bucket for packaging the nested devbox template (auto-created)
+#   DEVBOX_AMI_ID    explicit AMI id. Set this in a bare account that has nothing in SSM
+#                    /flyte-devbox/ami/latest (e.g. a shared/public AMI); skips the SSM
+#                    preflight and passes AmiId to the stack.
 
 set -euo pipefail
 export AWS_PAGER=""
@@ -51,9 +54,20 @@ ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text) \
     || fail "No AWS credentials. Set AWS_PROFILE (and run 'aws sso login' if needed)."
 echo "Account $ACCOUNT_ID, region $REGION, domain $FLYTE_DOMAIN, autostop $AUTOSTOP"
 
-# --- preflight: the devbox AMI must be published in this region -------------------------
-aws ssm get-parameter --name /flyte-devbox/ami/latest --query Parameter.Value --output text >/dev/null 2>&1 \
-    || fail "SSM /flyte-devbox/ami/latest not found in $REGION. The devbox AMI isn't published to this account/region yet — publish it (flyte-aws-marketplace) before deploying."
+# --- preflight: the devbox AMI -----------------------------------------------------------
+# The template's AmiSsmParameter is an SSM-typed parameter, so CloudFormation ALWAYS
+# resolves /flyte-devbox/ami/latest at changeset time (even though AmiId can override it in
+# the template). So in a bare account we must put that SSM param before deploying.
+DEVBOX_AMI_ID="${DEVBOX_AMI_ID:-}"
+if [ -n "$DEVBOX_AMI_ID" ]; then
+    echo "Publishing AMI $DEVBOX_AMI_ID to SSM /flyte-devbox/ami/latest in this account..."
+    aws ssm put-parameter --name /flyte-devbox/ami/latest --type String \
+        --value "$DEVBOX_AMI_ID" --overwrite >/dev/null \
+        || fail "Couldn't write the AMI to SSM /flyte-devbox/ami/latest."
+else
+    aws ssm get-parameter --name /flyte-devbox/ami/latest --query Parameter.Value --output text >/dev/null 2>&1 \
+        || fail "SSM /flyte-devbox/ami/latest not found in $REGION, and DEVBOX_AMI_ID is unset. Either publish the AMI to SSM, or set DEVBOX_AMI_ID to a shared/public devbox AMI id."
+fi
 
 # --- 1. devbox stack (vendored, nested template) ----------------------------------------
 # The devbox CloudFormation is vendored under provisioning/devbox-cfn/ (from
@@ -63,7 +77,7 @@ DEVBOX_ROOT="$REPO_ROOT/provisioning/devbox-cfn/devbox/cloudformation/root.yaml"
 
 STAGING_BUCKET="${STAGING_BUCKET:-${DEVBOX_STACK}-staging-${ACCOUNT_ID}-${REGION}}"
 if ! aws s3api head-bucket --bucket "$STAGING_BUCKET" 2>/dev/null; then
-    step "Creating staging bucket $STAGING_BUCKET…"
+    step "Creating staging bucket $STAGING_BUCKET..."
     if [ "$REGION" = "us-east-1" ]; then
         aws s3api create-bucket --bucket "$STAGING_BUCKET" >/dev/null
     else
@@ -72,12 +86,14 @@ if ! aws s3api head-bucket --bucket "$STAGING_BUCKET" 2>/dev/null; then
     fi
 fi
 
-step "Packaging + deploying the devbox stack ($DEVBOX_STACK)… (Prod mode: Aurora + ACM, ~5-10 min)"
+step "Packaging + deploying the devbox stack ($DEVBOX_STACK)... (Prod mode: Aurora + ACM, ~5-10 min)"
 PACKAGED=$(mktemp)
 aws cloudformation package \
     --template-file "$DEVBOX_ROOT" \
     --s3-bucket "$STAGING_BUCKET" \
     --output-template-file "$PACKAGED" >/dev/null
+# AmiId is left unset on purpose — the SSM param (written above in a bare account, or
+# maintained by the AMI pipeline otherwise) is what the template resolves.
 aws cloudformation deploy \
     --stack-name "$DEVBOX_STACK" \
     --template-file "$PACKAGED" \
@@ -85,12 +101,12 @@ aws cloudformation deploy \
     --parameter-overrides "Domain=$FLYTE_DOMAIN" "AutoStop=$AUTOSTOP"
 
 # --- gather devbox outputs to feed the provisioning stack -------------------------------
-step "Reading devbox outputs…"
+step "Reading devbox outputs..."
 dbout() { aws cloudformation describe-stacks --stack-name "$DEVBOX_STACK" \
             --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
 POOL_ID=$(dbout CognitoUserPoolId)
 CLIENT_ID=$(dbout CognitoM2MClientId)
-[ -n "$POOL_ID" ] && [ -n "$CLIENT_ID" ] || fail "Devbox stack didn't output Cognito ids — is it Prod mode (Domain set)?"
+[ -n "$POOL_ID" ] && [ -n "$CLIENT_ID" ] || fail "Devbox stack didn't output Cognito ids -- is it Prod mode (Domain set)?"
 
 CLIENT_SECRET=$(aws cognito-idp describe-user-pool-client \
     --user-pool-id "$POOL_ID" --client-id "$CLIENT_ID" \
@@ -104,7 +120,7 @@ INSTANCE_ROLE=$(aws iam list-roles \
 [ -n "$INSTANCE_ROLE" ] && [ "$INSTANCE_ROLE" != "None" ] || fail "Couldn't find the devbox instance role."
 
 # --- 2. provisioning stack (role + SSM + Cognito login + Bedrock + ECR) -----------------
-step "Deploying the Kiro provisioning stack ($SANDBOX_STACK)…"
+step "Deploying the Kiro provisioning stack ($SANDBOX_STACK)..."
 PARAMS=(
     "FlyteDomain=$FLYTE_DOMAIN"
     "CognitoDomain=$COGNITO_DOMAIN"
