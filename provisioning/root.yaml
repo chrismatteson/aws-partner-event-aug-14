@@ -17,9 +17,12 @@ Description: >
 Parameters:
   TemplatesBaseUrl:
     Type: String
+    AllowedPattern: "^https://.*[^/]$"
+    ConstraintDescription: must be an https:// URL with NO trailing slash.
     Description: >
       HTTPS S3 base URL holding the packaged nested templates -- expects
       <base>/devbox-root.yaml and <base>/kiro-sandbox.yaml (see publish.sh).
+      NO trailing slash (root builds <base>/devbox-root.yaml).
   DevboxAmiId:
     Type: AWS::EC2::Image::Id
     Description: The (public/shared) Flyte devbox AMI id, us-east-1.
