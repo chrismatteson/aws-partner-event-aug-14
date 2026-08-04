@@ -3,7 +3,7 @@ Description: >
   Central subdomain-delegation service. Deploy ONCE in the account that owns the parent
   Route 53 zone (e.g. flytedemo.app). It exposes a token-authenticated HTTPS endpoint that
   an attendee's deploy.sh calls to delegate <label>.<parent> to the nameservers of a zone
-  the attendee created in their OWN account — so attendee deploys need no central AWS
+  the attendee created in their OWN account -- so attendee deploys need no central AWS
   credentials, just the URL + token.
 #
 # Flow: attendee account creates a Route 53 zone for student07.flytedemo.app -> AWS assigns
@@ -111,13 +111,16 @@ Resources:
                       }}]})
               return resp(200, f"delegated {fqdn}")
 
-  # Public HTTPS endpoint (default *.lambda-url domain, AWS-trusted cert). Auth is the
-  # shared token in the request body, checked in the handler — so AuthType is NONE.
+  # HTTPS endpoint (default *.lambda-url domain, AWS-trusted cert). AuthType is AWS_IAM,
+  # NOT NONE: enterprise orgs commonly block public (NONE) function URLs via an SCP/RCP.
+  # So the caller SigV4-signs with any AWS creds (resource policy below allows any signed
+  # principal), and the shared token in the body is the real gate. deploy.sh signs the call
+  # with `curl --aws-sigv4` using the deploying account's credentials.
   DelegatorUrl:
     Type: AWS::Lambda::Url
     Properties:
       TargetFunctionArn: !GetAtt DelegatorFn.Arn
-      AuthType: NONE
+      AuthType: AWS_IAM
 
   DelegatorUrlPermission:
     Type: AWS::Lambda::Permission
@@ -125,7 +128,7 @@ Resources:
       FunctionName: !Ref DelegatorFn
       Action: lambda:InvokeFunctionUrl
       Principal: "*"
-      FunctionUrlAuthType: NONE
+      FunctionUrlAuthType: AWS_IAM
 
 Outputs:
   DelegationUrl:

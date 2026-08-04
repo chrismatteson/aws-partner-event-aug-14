@@ -28,11 +28,16 @@
 #   DEVBOX_AMI_ID    explicit AMI id. Set this in a bare account that has nothing in SSM
 #                    /flyte-devbox/ami/latest (e.g. a shared/public AMI); skips the SSM
 #                    preflight and passes AmiId to the stack.
-#   DELEGATION_URL   central delegation service endpoint (provisioning/delegation-service.yaml).
-#   DELEGATION_TOKEN shared token for it. When both are set, deploy.sh creates a hosted zone
-#                    for <flyte-domain> IN THIS account and delegates it from the parent via
-#                    the service -- so a bare account needs no pre-existing zone. When unset,
-#                    <flyte-domain> is assumed already resolvable (an existing zone).
+# Delegation (deploy.sh creates a hosted zone for <flyte-domain> IN the target account,
+# then delegates it from the parent zone by one of two mechanisms):
+#   DELEGATION_PROFILE + DELEGATION_ZONE_ID   RECOMMENDED for cross-org (Workshop Studio)
+#                    accounts. The operator also holds a profile for the parent account;
+#                    deploy.sh writes the NS record there directly. Zone id = the parent zone.
+#   DELEGATION_URL + DELEGATION_TOKEN         the central delegation Lambda
+#                    (provisioning/delegation-service.yaml). Only works when the deploying
+#                    account can reach that Function URL (same account or same org -- cross-org
+#                    accounts are blocked by SCP). Signed with SigV4 (the URL is AuthType IAM).
+#   (neither)        <flyte-domain> is assumed already resolvable; the NS are printed.
 
 set -euo pipefail
 export AWS_PAGER=""
@@ -90,17 +95,38 @@ else
 fi
 ZONE_NS=$(aws route53 get-hosted-zone --id "$ZONE_ID" --query 'DelegationSet.NameServers' --output json)
 
-if [ -n "${DELEGATION_URL:-}" ] && [ -n "${DELEGATION_TOKEN:-}" ]; then
+if [ -n "${DELEGATION_PROFILE:-}" ] && [ -n "${DELEGATION_ZONE_ID:-}" ]; then
+    # Direct delegation: the operator running this also holds creds for the parent account
+    # (a separate AWS profile). This is the model that works for cross-org attendee accounts
+    # (Workshop Studio SCPs block cross-account calls to a central delegation Lambda).
+    step "Delegating $FLYTE_DOMAIN into the parent zone (profile: $DELEGATION_PROFILE)..."
+    DELEG_RRS=$(echo "$ZONE_NS" | python3 -c 'import json,sys; print(json.dumps([{"Value":n} for n in json.load(sys.stdin)]))')
+    DELEG_BATCH=$(printf '{"Changes":[{"Action":"UPSERT","ResourceRecordSet":{"Name":"%s","Type":"NS","TTL":300,"ResourceRecords":%s}}]}' "$FLYTE_DOMAIN" "$DELEG_RRS")
+    # env -u clears the target-account creds so --profile actually selects the parent
+    # account (env creds otherwise take precedence over --profile).
+    env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+        aws route53 change-resource-record-sets --profile "$DELEGATION_PROFILE" \
+        --hosted-zone-id "$DELEGATION_ZONE_ID" --change-batch "$DELEG_BATCH" \
+        --query 'ChangeInfo.Status' --output text --no-cli-pager \
+        || fail "direct delegation failed (check DELEGATION_PROFILE / DELEGATION_ZONE_ID)."
+    echo "   waiting ~30s for delegation to propagate..."; sleep 30
+elif [ -n "${DELEGATION_URL:-}" ] && [ -n "${DELEGATION_TOKEN:-}" ]; then
+    # Delegation via the central Lambda (provisioning/delegation-service.yaml). Works when
+    # the deploying account CAN reach that Function URL -- i.e. same account, or same org.
+    # (Cross-org Workshop Studio accounts are blocked by SCP; use DELEGATION_PROFILE there.)
     step "Delegating $FLYTE_DOMAIN via the delegation service..."
     DELEG_BODY=$(printf '{"token":"%s","subdomain":"%s","nameservers":%s}' \
         "$DELEGATION_TOKEN" "$FLYTE_DOMAIN" "$ZONE_NS")
-    curl -fsS -X POST "$DELEGATION_URL" -H 'content-type: application/json' -d "$DELEG_BODY" \
+    eval "$(aws configure export-credentials --format env 2>/dev/null)"  # AuthType AWS_IAM -> SigV4
+    DELEG_CURL=(--aws-sigv4 "aws:amz:${REGION}:lambda" --user "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}")
+    [ -n "${AWS_SESSION_TOKEN:-}" ] && DELEG_CURL+=(-H "x-amz-security-token: ${AWS_SESSION_TOKEN}")
+    curl -fsS "${DELEG_CURL[@]}" -X POST "$DELEGATION_URL" \
+        -H 'content-type: application/json' -d "$DELEG_BODY" \
         || fail "delegation call failed (check DELEGATION_URL / DELEGATION_TOKEN)."
     echo ""
-    # Give the NS delegation a moment to propagate so ACM validation isn't slow to start.
     echo "   waiting ~30s for delegation to propagate..."; sleep 30
 else
-    echo "DELEGATION_URL/TOKEN not set -- assuming $FLYTE_DOMAIN is already delegated."
+    echo "No delegation configured -- assuming $FLYTE_DOMAIN is already resolvable."
     echo "   (to delegate manually, add these NS to the parent zone for $FLYTE_DOMAIN:"
     echo "    $(echo "$ZONE_NS" | tr -d '[]\n" ' | tr ',' ' '))"
 fi
