@@ -5,7 +5,7 @@ subscription (Pro / Pro+ / Power). After this runs, the attendee can sign in at
 app.kiro.dev with that Identity Center user and drive the autonomous-agent sandbox
 against the role from kiro-sandbox.yaml (which lives in THEIR own AWS account).
 
-  python provisioning/kiro-setup.py --email student05@flytedemo.app --tier pro
+  python operator/kiro-setup.py --email student05@flytedemo.app --tier pro
   # tiers: pro | pro+ | power ; --region defaults to us-east-1 (Kiro Web preview region)
 
 ------------------------------------------------------------------------------------
@@ -28,7 +28,7 @@ Organization with Identity Center enabled. Enabling that org instance is a one-t
 console action (no reliable API) -- this script detects its absence and stops with
 instructions rather than guessing.
 
-RECOMMENDED TOPOLOGY (see provisioning/README.md): run this against ONE central org
+RECOMMENDED TOPOLOGY (see operator/README.md): run this against ONE central org
 Identity Center, once per attendee. The Kiro user does NOT need to live in the same
 account as the sandbox role -- the role (kiro-sandbox.yaml) is assumable by the Kiro
 service, so each attendee signs in with their central Kiro user and pastes THEIR OWN

@@ -14,10 +14,10 @@ target account, and a Route 53 hosted zone that your chosen hostname sits under.
 ```bash
 # No arguments needed: the subdomain is derived from the account id (s<hash>.flytedemo.app),
 # self-delegated, and Kiro is enabled end-to-end via API. Just run it in each account:
-bash provisioning/deploy.sh
+bash operator/deploy.sh
 
 # Optional: pin a domain and/or pass a LlamaCloud key (ATTENDEE_EMAIL env overrides the login):
-bash provisioning/deploy.sh student01.flytedemo.app llx-abc123
+bash operator/deploy.sh student01.flytedemo.app llx-abc123
 ```
 
 It runs two CloudFormation stacks — the Flyte devbox and the Kiro provisioning — and prints
@@ -30,9 +30,9 @@ everything Part 2 needs:
 
 > **The box doesn't sleep by default.** Deploy defaults to `AUTOSTOP=No`, so there are no
 > ~2-minute wake delays mid-workshop. For a long-lived box you want cheap when idle, deploy
-> with `AUTOSTOP=Yes bash provisioning/deploy.sh …` (it stops after ~30 min idle and wakes
+> with `AUTOSTOP=Yes bash operator/deploy.sh …` (it stops after ~30 min idle and wakes
 > on the next request). Prerequisites and the per-stack breakdown:
-> [provisioning/README.md](../provisioning/README.md).
+> [operator/README.md](../operator/README.md).
 
 ---
 

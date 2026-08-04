@@ -4,13 +4,13 @@
 # three templates to an S3 bucket. Run it once (or whenever the templates change); then AWS /
 # Workshop Studio deploys root.yaml into each account with TemplatesBaseUrl pointing here.
 #
-#   bash provisioning/publish.sh <s3-bucket> [s3-prefix]
+#   bash operator/publish.sh <s3-bucket> [s3-prefix]
 #
 # The bucket must be READABLE by the accounts that deploy root.yaml (public-read, or a bucket
 # policy granting them). Workshop Studio typically hosts content in its own bucket.
 set -euo pipefail
 export AWS_PAGER=""
-BUCKET="${1:?usage: bash provisioning/publish.sh <s3-bucket> [s3-prefix]}"
+BUCKET="${1:?usage: bash operator/publish.sh <s3-bucket> [s3-prefix]}"
 PREFIX="${2:-workshop-templates}"
 REGION="${AWS_REGION:-us-east-1}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

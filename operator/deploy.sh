@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Stand up one attendee's workshop account, end to end, with CloudFormation.
 #
-#   bash provisioning/deploy.sh [flyte-domain] [llama-cloud-key]
+#   bash operator/deploy.sh [flyte-domain] [llama-cloud-key]
 #
 # With NO domain (the Workshop-Studio case), it derives a unique, stable one from this
 # account's id: s<8-hex-of-sha256(account-id)>.<PARENT_DOMAIN>. So the same command works
 # unchanged in every attendee account, no per-account argument:
-#   bash provisioning/deploy.sh
+#   bash operator/deploy.sh
 # Or pin the domain explicitly (testing):
-#   bash provisioning/deploy.sh student01.flytedemo.app llx-abc123
+#   bash operator/deploy.sh student01.flytedemo.app llx-abc123
 #
 # It runs two CloudFormation stacks -- the Flyte devbox (from the flyte-aws-marketplace
 # template) and the Kiro provisioning (provisioning/kiro-sandbox.yaml) -- and prints the

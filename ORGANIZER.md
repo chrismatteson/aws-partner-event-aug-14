@@ -95,7 +95,7 @@ fetches the rest. This collapsed the card from eight secrets to one. It leans on
 July-2026 Preview feature; **red test 6b** gates it, with the typed-secrets flow in git
 history as the fallback. Kiro enablement itself — Identity Center instance + profile +
 Pro subscription — is now **fully automated by the deploy** via API (no console step; see
-provisioning/README.md). The irreducible manual floor: connect GitHub, two allow-list
+operator/README.md). The irreducible manual floor: connect GitHub, two allow-list
 entries, one MCP server, paste the ARN, and set the Identity Center user's password (the
 one bit the deploy can't set — it sends an invitation email).
 
@@ -422,10 +422,10 @@ Both are one command away: `kubectl get cm flyte-binary-config -n flyte`.
 - [ ] **Create an ECR repository creation template** in each account with
       `appliedFor = CREATE_ON_PUSH`. Without it, attendees can only push images named
       `flyte`, and any agent that picks a different name fails confusingly.
-- [ ] **Run `bash provisioning/deploy.sh` in each account** — one command, no args. It
+- [ ] **Run `bash operator/deploy.sh` in each account** — one command, no args. It
       derives the subdomain, self-delegates the zone, deploys the devbox + the Kiro
       provisioning stack, and enables Kiro end-to-end via API (Identity Center instance +
-      profile + user + Pro subscription). See [provisioning/README.md](provisioning/README.md).
+      profile + user + Pro subscription). See [operator/README.md](operator/README.md).
       One command × 40, scriptable.
 - [ ] **Capture each account's role ARN** from the deploy output (`KiroSandboxRoleArn`).
       That's the whole card — nothing secret transcribed by hand.
@@ -490,7 +490,7 @@ no keys to transcribe, no eight-value card to get wrong at 09:15.
 ### How the one value is produced
 
 The whole per-account provisioning — the role, the SSM params — lives in
-[`provisioning/`](provisioning/) and its [README](provisioning/README.md) has the deploy
+[`provisioning/`](provisioning/) and its [README](operator/README.md) has the deploy
 script. In short: the devbox stack already creates the Cognito M2M client and knows the
 Flyte domain; the provisioning template turns those (plus the client secret, fetched via
 `describe-user-pool-client`, and the Llama key) into SSM parameters and emits one role

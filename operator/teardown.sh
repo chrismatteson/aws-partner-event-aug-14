@@ -4,7 +4,7 @@
 # and keep billing. Mirrors deploy.sh; region-scoped, so it never touches another region's
 # devbox.
 #
-#   bash provisioning/teardown.sh
+#   bash operator/teardown.sh
 #
 # Env (match what deploy.sh used):
 #   AWS_PROFILE / AWS_REGION   target account + region (default region us-east-1)

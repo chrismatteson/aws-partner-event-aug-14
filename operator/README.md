@@ -8,14 +8,14 @@ ARN." Deploy it into each attendee account after the devbox stack.
 Both stand an account up end to end — derive `s<hash>.flytedemo.app`, self-delegate its zone,
 bring up the devbox, wire + enable Kiro. They differ only in *how* they're driven:
 
-- **`deploy.sh` — imperative, proven.** One command per account (`bash provisioning/deploy.sh`).
+- **`deploy.sh` — imperative, proven.** One command per account (`bash operator/deploy.sh`).
   Does the orchestration in shell. This is the path that's been run end to end. Use it for
   manual/scripted runs.
 - **`root.yaml` — pure CloudFormation, for Workshop Studio.** A single template AWS deploys
   into each account (no shell to run); the `deploy.sh` orchestration is expressed as three tiny
   custom resources (`Prep` = derive domain + AMI→SSM, `Delegate` = assume-role + guard,
   `Wire` = fetch the Cognito secret/domain + instance role) plus a native zone and the two
-  nested stacks. Handout values are stack **Outputs**. One-time build: `bash provisioning/publish.sh
+  nested stacks. Handout values are stack **Outputs**. One-time build: `bash operator/publish.sh
   <s3-bucket>` packages the nested templates to S3 and prints the `TemplatesBaseUrl` +
   deploy command. **Not yet run end to end** (built while locked out of AWS) — validate it on
   one account before the fleet; `deploy.sh` remains the fallback.
@@ -189,11 +189,11 @@ end-to-end with **no console step**:
 Steps 2 and 5 are private, undocumented APIs (endpoint `codewhisperer.<region>.amazonaws.com`,
 reverse-engineered from AWS's own `aws/amazon-q-developer-cli` **plus a HAR capture of the Q
 Developer console** — which is where the `ssoRegion` field came from). **Unsupported; may
-change.** Proven end-to-end from zero. `provisioning/kiro-setup.py` is the same logic as a
+change.** Proven end-to-end from zero. `operator/kiro-setup.py` is the same logic as a
 standalone CLI (useful for a central Identity Center or ad-hoc runs):
 
 ```bash
-python provisioning/kiro-setup.py --email student05@flytedemo.app --tier pro
+python operator/kiro-setup.py --email student05@flytedemo.app --tier pro
 ```
 
 **Still manual: the Identity Center user's password.** `CreateUser` uses `PasswordMode=EMAIL`,
