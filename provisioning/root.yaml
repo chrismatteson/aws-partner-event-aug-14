@@ -334,6 +334,9 @@ Outputs:
   KiroLoginUrl:
     Description: Sign in to Kiro Web here.
     Value: !GetAtt SandboxStack.Outputs.KiroLoginUrl
+  KiroStartUrl:
+    Description: AWS access portal URL -- enter this as the "your organization" login on Kiro.
+    Value: !GetAtt SandboxStack.Outputs.KiroStartUrl
   KiroLoginEmail:
     Description: Kiro (Identity Center) username.
     Value: !Ref AttendeeEmail

@@ -246,6 +246,7 @@ KIRO_ERROR=$(sbout KiroError)
 KIRO_DEBUG=$(sbout KiroDebug)
 KIRO_PROFILE=$(sbout KiroProfileArn)
 KIRO_PASS=$(sbout KiroPassword)
+KIRO_START=$(sbout KiroStartUrl)
 REGISTRY=$(dbout ProdImageRegistry)                       # <acct>.dkr.ecr.<region>..../<repo>
 ECR_HOST="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 ALLOWLIST=".$(echo "$FLYTE_DOMAIN" | cut -d. -f2-), .amazoncognito.com"
@@ -268,7 +269,8 @@ cat <<EOF
 
   KIRO WEB  (the agent)
     Enable status        : $KIRO_STATUS   (instance/profile/Web flag/user/subscription via API)
-    Sign in              : https://app.kiro.dev
+    Sign in              : https://app.kiro.dev  ->  "your organization"
+    Start URL            : $KIRO_START
     username             : $LOGIN_EMAIL
     password             : ${KIRO_PASS:-<none -- reset in Identity Center console>}  (one-time; set a new one on first sign-in)
     Sandbox IAM Role ARN : $ROLE_ARN

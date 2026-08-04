@@ -528,7 +528,7 @@ Resources:
               del DBG[:]
               data = {"KiroStatus": "skipped", "KiroError": "", "KiroInstanceArn": "",
                       "KiroProfileArn": "", "KiroUserId": "", "KiroPassword": "",
-                      "KiroLoginUrl": "https://app.kiro.dev", "KiroDebug": ""}
+                      "KiroLoginUrl": "https://app.kiro.dev", "KiroStartUrl": "", "KiroDebug": ""}
               try:
                   if event["RequestType"] in ("Create", "Update"):
                       p = event["ResourceProperties"]
@@ -542,6 +542,8 @@ Resources:
                           log("SLR: %s" % str(e)[:120])
                       inst = ensure_instance(region)
                       data["KiroInstanceArn"] = inst["InstanceArn"]
+                      # AWS access portal (SSO start) URL -- the "your organization" login on Kiro.
+                      data["KiroStartUrl"] = "https://%s.awsapps.com/start" % inst["IdentityStoreId"]
                       parn = ensure_profile(region, inst["InstanceArn"])
                       data["KiroProfileArn"] = parn or ""
                       uid = ensure_user(region, inst["IdentityStoreId"], email)
@@ -636,6 +638,9 @@ Outputs:
   KiroLoginUrl:
     Description: Where the attendee signs in to Kiro Web.
     Value: !GetAtt EnableKiro.KiroLoginUrl
+  KiroStartUrl:
+    Description: AWS access portal (SSO start) URL -- use as the "your organization" login on Kiro.
+    Value: !GetAtt EnableKiro.KiroStartUrl
   FlytePassword:
     Description: Password for the Flyte UI login (generated in-stack, set on the Cognito user).
     Value: !GetAtt SetFlytePassword.Password

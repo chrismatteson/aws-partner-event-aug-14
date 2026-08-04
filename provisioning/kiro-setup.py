@@ -303,12 +303,14 @@ def main():
 
     password = generate_otp_password(session, args.region, inst["IdentityStoreId"], user_id)
 
+    start_url = f"https://{inst['IdentityStoreId']}.awsapps.com/start"
     print(
         "\nKIRO WEB LOGIN:\n"
-        f"  URL      : https://app.kiro.dev\n"
-        f"  username : {args.email}\n"
-        f"  password : {password or '(generation failed -- reset in the Identity Center console)'}\n"
-        "             (one-time; you'll set a new one on first sign-in)\n\n"
+        f"  Go to     : https://app.kiro.dev  ->  sign in with \"your organization\"\n"
+        f"  Start URL : {start_url}\n"
+        f"  username  : {args.email}\n"
+        f"  password  : {password or '(generation failed -- reset in the Identity Center console)'}\n"
+        "              (one-time; you'll set a new one on first sign-in)\n\n"
         "Then paste the sandbox role ARN (kiro-sandbox output) at Settings > Agent > Sandbox >\n"
         "IAM Role, set the allow-list + MCP server, and run `bash scripts/bootstrap.sh` in a task."
     )
