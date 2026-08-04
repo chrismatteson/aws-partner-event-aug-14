@@ -245,6 +245,7 @@ KIRO_STATUS=$(sbout KiroStatus)
 KIRO_ERROR=$(sbout KiroError)
 KIRO_DEBUG=$(sbout KiroDebug)
 KIRO_PROFILE=$(sbout KiroProfileArn)
+KIRO_PASS=$(sbout KiroPassword)
 REGISTRY=$(dbout ProdImageRegistry)                       # <acct>.dkr.ecr.<region>..../<repo>
 ECR_HOST="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 ALLOWLIST=".$(echo "$FLYTE_DOMAIN" | cut -d. -f2-), .amazoncognito.com"
@@ -265,12 +266,11 @@ cat <<EOF
   DOCKER LOGIN TO ECR  (before building/pushing images)
     aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ECR_HOST
 
-  KIRO WEB  (the agent -- https://app.kiro.dev)
-    Enable status        : $KIRO_STATUS   (instance/profile/user/subscription via API)
-    Identity Center user : $LOGIN_EMAIL  (id $KIRO_USER)
-    Kiro profile         : ${KIRO_PROFILE:-<none>}
-    Sign in              : app.kiro.dev with that Identity Center user (set its password via
-                           the Identity Center invitation/reset), then connect GitHub in Kiro.
+  KIRO WEB  (the agent)
+    Enable status        : $KIRO_STATUS   (instance/profile/Web flag/user/subscription via API)
+    Sign in              : https://app.kiro.dev
+    username             : $LOGIN_EMAIL
+    password             : ${KIRO_PASS:-<none -- reset in Identity Center console>}  (one-time; set a new one on first sign-in)
     Sandbox IAM Role ARN : $ROLE_ARN
       (paste at Settings > Agent > Sandbox > IAM Role)
     Network allow-list   : $ALLOWLIST

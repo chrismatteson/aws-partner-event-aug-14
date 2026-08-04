@@ -328,3 +328,12 @@ Outputs:
     Value: !GetAtt SandboxStack.Outputs.KiroStatus
   KiroUserId:
     Value: !GetAtt SandboxStack.Outputs.KiroUserId
+  KiroLoginUrl:
+    Description: Sign in to Kiro Web here.
+    Value: !GetAtt SandboxStack.Outputs.KiroLoginUrl
+  KiroLoginEmail:
+    Description: Kiro (Identity Center) username.
+    Value: !Ref AttendeeEmail
+  KiroPassword:
+    Description: One-time Kiro password (set a new one on first sign-in).
+    Value: !GetAtt SandboxStack.Outputs.KiroPassword

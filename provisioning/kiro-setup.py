@@ -250,6 +250,25 @@ def create_assignment(session, region, principal_id, subscription_type,
     return False, resp
 
 
+def generate_otp_password(session, region, store_id, user_id):
+    """Generate a one-time login password for the Identity Center user via the private
+    SWBUPService.UpdatePassword (PasswordMode OTP) -- signed as 'userpool' on the identitystore
+    endpoint. Returns the password string (the user is prompted to change it on first login),
+    or None. Confirmed from the console's own reset-password call."""
+    creds = session.get_credentials().get_frozen_credentials()
+    url = f"https://identitystore.{region}.amazonaws.com/"
+    body = json.dumps({"UserId": user_id, "PasswordMode": "OTP", "IdentityStoreId": store_id})
+    signed = botocore.awsrequest.AWSRequest(method="POST", url=url, data=body, headers={
+        "Content-Type": "application/x-amz-json-1.0", "X-Amz-Target": "SWBUPService.UpdatePassword"})
+    botocore.auth.SigV4Auth(creds, "userpool", region).add_auth(signed)
+    req = urllib.request.Request(url, data=body.encode(), headers=dict(signed.headers), method="POST")
+    try:
+        return json.loads(urllib.request.urlopen(req, timeout=30).read().decode()).get("Password")
+    except Exception as exc:
+        print(f"  (one-time password generation failed: {exc})", file=sys.stderr)
+        return None
+
+
 def main():
     ap = argparse.ArgumentParser(description="Create an Identity Center user + Kiro subscription.")
     ap.add_argument("--email", required=True, help="attendee's Identity Center username/email")
@@ -282,14 +301,16 @@ def main():
     print(f"Kiro subscription assigned: {args.tier} ({subscription_type})"
           f"{'  [' + note + ']' if note else ''}")
 
+    password = generate_otp_password(session, args.region, inst["IdentityStoreId"], user_id)
+
     print(
-        "\nDone. The attendee:\n"
-        "  1. signs in at https://app.kiro.dev with this Identity Center user\n"
-        "     (credentials come from your Identity Center's configured source: an\n"
-        "      invitation email for the built-in store, or your external IdP)\n"
-        "  2. pastes their account's sandbox role ARN (kiro-sandbox output) at\n"
-        "     Settings > Agent > Sandbox > IAM Role, sets the allow-list + MCP server,\n"
-        "  3. runs `bash scripts/bootstrap.sh` in a Kiro task."
+        "\nKIRO WEB LOGIN:\n"
+        f"  URL      : https://app.kiro.dev\n"
+        f"  username : {args.email}\n"
+        f"  password : {password or '(generation failed -- reset in the Identity Center console)'}\n"
+        "             (one-time; you'll set a new one on first sign-in)\n\n"
+        "Then paste the sandbox role ARN (kiro-sandbox output) at Settings > Agent > Sandbox >\n"
+        "IAM Role, set the allow-list + MCP server, and run `bash scripts/bootstrap.sh` in a task."
     )
 
 

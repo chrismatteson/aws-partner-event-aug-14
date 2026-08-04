@@ -402,6 +402,23 @@ Resources:
                   log("%s [%s] ERR %d: %s" % (target, sign, e.code, out[:300]))
                   return False, "HTTP %d: %s" % (e.code, out)
 
+          def otp_password(region, sid, uid):
+              # Generate a one-time login password for the IdC user via the private
+              # SWBUPService.UpdatePassword (PasswordMode OTP), signed as 'userpool' on the
+              # identitystore endpoint. Returns the password (user resets on first sign-in).
+              c = boto3.Session().get_credentials().get_frozen_credentials()
+              url = "https://identitystore.%s.amazonaws.com/" % region
+              body = json.dumps({"UserId": uid, "PasswordMode": "OTP", "IdentityStoreId": sid})
+              r = botocore.awsrequest.AWSRequest(method="POST", url=url, data=body, headers={
+                  "Content-Type": "application/x-amz-json-1.0", "X-Amz-Target": "SWBUPService.UpdatePassword"})
+              botocore.auth.SigV4Auth(c, "userpool", region).add_auth(r)
+              req = urllib.request.Request(url, data=body.encode(), headers=dict(r.headers), method="POST")
+              try:
+                  pw = json.loads(urllib.request.urlopen(req, timeout=30).read().decode()).get("Password", "")
+                  log("otp password: generated"); return pw
+              except Exception as e:
+                  log("otp password FAILED: %s" % str(e)[:140]); return ""
+
           def ensure_instance(region):
               # An sso-admin:CreateInstance account instance IS accepted by Kiro as long as
               # CreateProfile's identitySource uses ssoRegion (not identityStoreId). Deleting an
@@ -510,7 +527,8 @@ Resources:
               # to retry (e.g. after a one-time console enable).
               del DBG[:]
               data = {"KiroStatus": "skipped", "KiroError": "", "KiroInstanceArn": "",
-                      "KiroProfileArn": "", "KiroUserId": "", "KiroDebug": ""}
+                      "KiroProfileArn": "", "KiroUserId": "", "KiroPassword": "",
+                      "KiroLoginUrl": "https://app.kiro.dev", "KiroDebug": ""}
               try:
                   if event["RequestType"] in ("Create", "Update"):
                       p = event["ResourceProperties"]
@@ -528,6 +546,7 @@ Resources:
                       data["KiroProfileArn"] = parn or ""
                       uid = ensure_user(region, inst["IdentityStoreId"], email)
                       data["KiroUserId"] = uid
+                      data["KiroPassword"] = otp_password(region, inst["IdentityStoreId"], uid)
                       assign(region, uid, sub, parn)
                       data["KiroStatus"] = "ok"
               except Exception as e:
@@ -611,6 +630,12 @@ Outputs:
   KiroUserId:
     Description: Identity Center user id (assign the Kiro subscription; sign in at app.kiro.dev).
     Value: !GetAtt EnableKiro.KiroUserId
+  KiroPassword:
+    Description: One-time password for the Kiro login (set a new one on first sign-in).
+    Value: !GetAtt EnableKiro.KiroPassword
+  KiroLoginUrl:
+    Description: Where the attendee signs in to Kiro Web.
+    Value: !GetAtt EnableKiro.KiroLoginUrl
   FlytePassword:
     Description: Password for the Flyte UI login (generated in-stack, set on the Cognito user).
     Value: !GetAtt SetFlytePassword.Password
