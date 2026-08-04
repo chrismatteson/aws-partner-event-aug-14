@@ -419,6 +419,26 @@ Resources:
               except Exception as e:
                   log("otp password FAILED: %s" % str(e)[:140]); return ""
 
+          def disable_mfa(region, iarn):
+              # Turn MFA off for the whole Identity Center instance (private
+              # SWBService.UpdateSsoConfiguration, signed 'sso', json-1.1). Confirmed from the
+              # console's own save call. Throwaway per-account instance -- no MFA friction.
+              c = boto3.Session().get_credentials().get_frozen_credentials()
+              url = "https://sso.%s.amazonaws.com/" % region
+              body = json.dumps({"instanceArn": iarn,
+                  "configurationType": "APP_AUTHENTICATION_CONFIGURATION",
+                  "ssoConfiguration": {"mfaMode": "DISABLED",
+                      "noMfaSignInBehavior": "ALLOWED_WITH_ENROLLMENT",
+                      "allowedMfaTypes": ["TOTP", "WEBAUTHN"]}})
+              r = botocore.awsrequest.AWSRequest(method="POST", url=url, data=body, headers={
+                  "Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": "SWBService.UpdateSsoConfiguration"})
+              botocore.auth.SigV4Auth(c, "sso", region).add_auth(r)
+              req = urllib.request.Request(url, data=body.encode(), headers=dict(r.headers), method="POST")
+              try:
+                  urllib.request.urlopen(req, timeout=30).read(); log("MFA disabled")
+              except Exception as e:
+                  log("disable MFA FAILED: %s" % str(e)[:140])
+
           def ensure_instance(region):
               # An sso-admin:CreateInstance account instance IS accepted by Kiro as long as
               # CreateProfile's identitySource uses ssoRegion (not identityStoreId). Deleting an
@@ -544,6 +564,7 @@ Resources:
                       data["KiroInstanceArn"] = inst["InstanceArn"]
                       # AWS access portal (SSO start) URL -- the "your organization" login on Kiro.
                       data["KiroStartUrl"] = "https://%s.awsapps.com/start" % inst["IdentityStoreId"]
+                      disable_mfa(region, inst["InstanceArn"])
                       parn = ensure_profile(region, inst["InstanceArn"])
                       data["KiroProfileArn"] = parn or ""
                       uid = ensure_user(region, inst["IdentityStoreId"], email)

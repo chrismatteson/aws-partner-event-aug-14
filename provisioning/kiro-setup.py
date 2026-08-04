@@ -269,6 +269,27 @@ def generate_otp_password(session, region, store_id, user_id):
         return None
 
 
+def disable_mfa(session, region, instance_arn):
+    """Disable MFA for the whole Identity Center instance via the private
+    SWBService.UpdateSsoConfiguration (signed 'sso', json-1.1) -- confirmed from the console's
+    own save call. Throwaway per-account instance, so no MFA friction for attendees."""
+    creds = session.get_credentials().get_frozen_credentials()
+    url = f"https://sso.{region}.amazonaws.com/"
+    body = json.dumps({"instanceArn": instance_arn,
+        "configurationType": "APP_AUTHENTICATION_CONFIGURATION",
+        "ssoConfiguration": {"mfaMode": "DISABLED", "noMfaSignInBehavior": "ALLOWED_WITH_ENROLLMENT",
+                             "allowedMfaTypes": ["TOTP", "WEBAUTHN"]}})
+    signed = botocore.awsrequest.AWSRequest(method="POST", url=url, data=body, headers={
+        "Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": "SWBService.UpdateSsoConfiguration"})
+    botocore.auth.SigV4Auth(creds, "sso", region).add_auth(signed)
+    req = urllib.request.Request(url, data=body.encode(), headers=dict(signed.headers), method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=30).read()
+        print("MFA disabled for the Identity Center instance.")
+    except Exception as exc:
+        print(f"  (disable MFA failed: {exc})", file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Create an Identity Center user + Kiro subscription.")
     ap.add_argument("--email", required=True, help="attendee's Identity Center username/email")
@@ -282,6 +303,7 @@ def main():
     session = boto3.Session()
 
     inst = ensure_identity_center(session, args.region)
+    disable_mfa(session, args.region, inst["InstanceArn"])
     ensure_service_linked_role(session)
     profile_arn = ensure_profile(session, args.region, inst["InstanceArn"])
     user_id = find_or_create_user(
