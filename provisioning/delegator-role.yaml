@@ -31,9 +31,8 @@ Parameters:
     Type: String
     Default: "^s[0-9a-f]{8}$"
     Description: >
-      Regex a delegated label must match. Default matches deploy.sh's account-id-derived
-      labels s<8-hex> (sha256 of the account id). Widen to e.g.
-      ^(s[0-9a-f]{8}|student[0-9]{1,4})$ to also allow studentNN test names.
+      Regex a delegated label must match. Default (and only sensible value) matches
+      deploy.sh's account-id-derived labels s<8-hex> (sha256 of the account id).
   DelegationExternalId:
     Type: String
     NoEcho: true
@@ -90,9 +89,7 @@ Resources:
               # Scoped to the ONE parent zone. The function's own code further restricts this
               # to single-label NS records under the parent.
               - Effect: Allow
-                Action:
-                  - route53:ChangeResourceRecordSets
-                  - route53:ListResourceRecordSets   # read-before-write for first-writer-wins
+                Action: route53:ChangeResourceRecordSets
                 Resource: !Sub "arn:aws:route53:::hostedzone/${ParentZoneId}"
 
   # The guard. Only DelegatorRole can invoke it (see DelegatorRole's policy + no other grant).
@@ -125,7 +122,7 @@ Resources:
           def handler(event, context):
               # Invoked directly (not via API Gateway), so event IS the payload dict.
               # The ONLY operation this function can perform is: create/refresh a single-label
-              # NS record under PARENT, pointing at AWS (awsdns) nameservers, first-writer-wins.
+              # NS record under PARENT, pointing at AWS (awsdns) nameservers (overwrite-always).
               # It has no other route53 write path, so nothing else in the parent zone is
               # reachable through it -- not the apex, not MX/TXT/A, not another label's records.
               sub = str(event.get("subdomain", "")).strip(".").lower()
@@ -149,17 +146,12 @@ Resources:
               if len(ns) < 2 or not all("awsdns" in n and "." in n for n in ns):
                   return result(False, "nameservers must all be AWS Route 53 (awsdns) hostnames")
 
-              # 3. first-writer-wins: if this label is already delegated to DIFFERENT
-              #    nameservers, refuse -- blocks one attendee hijacking another's subdomain.
-              #    Identical NS -> idempotent re-run is fine.
-              existing = r53.list_resource_record_sets(
-                  HostedZoneId=ZONE_ID, StartRecordName=fqdn, StartRecordType="NS", MaxItems="1")
-              for rr in existing.get("ResourceRecordSets", []):
-                  if rr["Name"].rstrip(".").lower() == fqdn and rr["Type"] == "NS":
-                      have = sorted(r["Value"].rstrip(".").lower() for r in rr["ResourceRecords"])
-                      if have != sorted(ns):
-                          return result(False, f"{fqdn} is already delegated; refusing to overwrite")
-
+              # 3. Overwrite-always: each request UPSERTs the label's NS. (first-writer-wins was
+              #    intentionally dropped -- redeploying the same account needs to replace its
+              #    delegation with the new zone's nameservers, and this is a throwaway demo
+              #    domain already gated by the external-id + the single-label/pattern/awsdns
+              #    guards. The tradeoff: an external-id holder could overwrite another label's
+              #    delegation. Accepted here.)
               r53.change_resource_record_sets(
                   HostedZoneId=ZONE_ID,
                   ChangeBatch={"Changes": [{

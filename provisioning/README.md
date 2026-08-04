@@ -63,7 +63,7 @@ Two layers make that work:
     --template-file provisioning/delegator-role.yaml \
     --capabilities CAPABILITY_NAMED_IAM --region us-east-1 \
     --parameter-overrides ParentZoneId=<parent-zone-id> ParentDomain=flytedemo.app \
-      LabelPattern='^student[0-9]{1,4}$' DelegationExternalId=<generate-a-secret>
+      LabelPattern='^s[0-9a-f]{8}$' DelegationExternalId=<generate-a-secret>
   ```
 
 - **Per-account, public — `deploy.sh`.** The public repo carries only mechanism. `deploy.sh`
@@ -76,14 +76,17 @@ Two layers make that work:
 Route 53 access; it can only invoke the guard Lambda, which enforces, in code:
 
 - a **single label** under the parent (no apex, no multi-level names),
-- matching **`LabelPattern`** (e.g. `^student[0-9]{1,4}$`),
+- matching **`LabelPattern`** (`^s[0-9a-f]{8}$` — the account-id hash form),
 - an **`NS` record only** — never MX/TXT/A/etc. on the parent,
 - nameservers that are **AWS Route 53 (`awsdns`) hosts** — can't point a subdomain at
-  attacker infrastructure,
-- **first-writer-wins** — can't overwrite another attendee's existing delegation.
+  attacker infrastructure.
 
-So even a leaked external-id can do nothing to `flytedemo.app` but create a `studentNN` NS
-delegation to an AWS zone. (The child zone `studentNN.flytedemo.app` is then fully the
+(It's **overwrite-always**, not first-writer-wins — a redeploy of the same account needs to
+replace its own delegation, and this is a throwaway demo domain. Tradeoff: an external-id
+holder could overwrite another `s<hash>` label's delegation.)
+
+So even a leaked external-id can do nothing to `flytedemo.app` but create an `s<hash>` NS
+delegation to an AWS zone. (The child zone `s<hash>.flytedemo.app` is then fully the
 attendee's, inside their own account — that's what delegation *is*, and it can't affect the
 parent or any other attendee.)
 
