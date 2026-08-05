@@ -423,8 +423,10 @@ Resources:
               # Turn MFA off for the whole Identity Center instance (private
               # SWBService.UpdateSsoConfiguration, signed 'sso', json-1.1). Confirmed from the
               # console's own save call. Throwaway per-account instance -- no MFA friction.
+              # NOTE: the SWBService ops live at the /control/ path -- POSTing to root '/'
+              # returns UnknownOperationException (surfaces as an opaque HTTP 400).
               c = boto3.Session().get_credentials().get_frozen_credentials()
-              url = "https://sso.%s.amazonaws.com/" % region
+              url = "https://sso.%s.amazonaws.com/control/" % region
               body = json.dumps({"instanceArn": iarn,
                   "configurationType": "APP_AUTHENTICATION_CONFIGURATION",
                   "ssoConfiguration": {"mfaMode": "DISABLED",
@@ -503,8 +505,10 @@ Resources:
                       "profileArn": arn,
                       "profileName": "kiro-workshop",
                       "identitySource": {"ssoIdentitySource": {"instanceArn": iarn, "ssoRegion": region}},
-                      "optInFeatures": {"overageConfiguration": {"overageStatus": "DISABLED"},
-                                        "autonomousAgents": {"toggle": "ON"}},
+                      # overageConfiguration here triggers "Identity source with SSO region ...
+                      # required when overage configuration is specified" (400) -- omit it;
+                      # autonomousAgents ON alone is what flips on Kiro Web.
+                      "optInFeatures": {"autonomousAgents": {"toggle": "ON"}},
                       "optInFeaturesType": "KIRO",
                       "referenceTrackerConfiguration": {"recommendationsWithReferences": "ALLOW"},
                       "activeFunctionalities": ["ANALYSIS", "CONVERSATIONS", "TASK_ASSIST", "TRANSFORMATIONS", "COMPLETIONS"],

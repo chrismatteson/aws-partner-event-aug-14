@@ -212,8 +212,9 @@ def ensure_profile(session, region, instance_arn):
             "profileArn": arn,
             "profileName": "kiro-workshop",
             "identitySource": {"ssoIdentitySource": {"instanceArn": instance_arn, "ssoRegion": region}},
-            "optInFeatures": {"overageConfiguration": {"overageStatus": "DISABLED"},
-                              "autonomousAgents": {"toggle": "ON"}},
+            # overageConfiguration here triggers "Identity source with SSO region ... required when
+            # overage configuration is specified" (400) -- omit it; autonomousAgents ON flips Web on.
+            "optInFeatures": {"autonomousAgents": {"toggle": "ON"}},
             "optInFeaturesType": "KIRO",
             "referenceTrackerConfiguration": {"recommendationsWithReferences": "ALLOW"},
             "activeFunctionalities": ["ANALYSIS", "CONVERSATIONS", "TASK_ASSIST", "TRANSFORMATIONS", "COMPLETIONS"],
@@ -272,9 +273,12 @@ def generate_otp_password(session, region, store_id, user_id):
 def disable_mfa(session, region, instance_arn):
     """Disable MFA for the whole Identity Center instance via the private
     SWBService.UpdateSsoConfiguration (signed 'sso', json-1.1) -- confirmed from the console's
-    own save call. Throwaway per-account instance, so no MFA friction for attendees."""
+    own save call. Throwaway per-account instance, so no MFA friction for attendees.
+
+    NOTE: SWBService lives at the /control/ path -- POSTing to root '/' returns
+    UnknownOperationException (which surfaces as an opaque HTTP 400)."""
     creds = session.get_credentials().get_frozen_credentials()
-    url = f"https://sso.{region}.amazonaws.com/"
+    url = f"https://sso.{region}.amazonaws.com/control/"
     body = json.dumps({"instanceArn": instance_arn,
         "configurationType": "APP_AUTHENTICATION_CONFIGURATION",
         "ssoConfiguration": {"mfaMode": "DISABLED", "noMfaSignInBehavior": "ALLOWED_WITH_ENROLLMENT",
