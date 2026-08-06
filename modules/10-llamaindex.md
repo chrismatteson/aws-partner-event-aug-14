@@ -1,5 +1,8 @@
 # 10 -- LlamaIndex: parse a stack of PDFs in parallel
 
+> ⚠️ **This module is currently unavailable** while its corpus/setup is reworked. Skip to
+> [Module 99](99-now-you-drive.md).
+
 **~60 minutes.** You'll take a folder of genuinely unpleasant PDFs, parse all of them at
 once on your devbox, make re-runs nearly free, and then spend real money on *only* the
 pages that deserve it.

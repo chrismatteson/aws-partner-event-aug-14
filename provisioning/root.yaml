@@ -315,31 +315,29 @@ Resources:
         LlamaCloudApiKey: !Ref LlamaCloudApiKey
 
 Outputs:
-  Domain:
-    Description: The account's derived subdomain.
-    Value: !GetAtt Prep.Domain
-  FlyteUiUrl:
-    Value: !Sub "https://${Prep.Domain}/v2"
-  KiroSandboxRoleArn:
-    Description: Paste into Kiro Web -- Settings > Agent > Sandbox > IAM Role.
-    Value: !GetAtt SandboxStack.Outputs.KiroSandboxRoleArn
-  FlyteLoginEmail:
-    Value: !Ref AttendeeEmail
-  FlytePassword:
-    Value: !GetAtt SandboxStack.Outputs.FlytePassword
-  KiroStatus:
-    Value: !GetAtt SandboxStack.Outputs.KiroStatus
-  KiroUserId:
-    Value: !GetAtt SandboxStack.Outputs.KiroUserId
+  # Kiro first (you set Kiro up before anything else), in the order the setup steps use them.
   KiroLoginUrl:
     Description: Sign in to Kiro Web here.
     Value: !GetAtt SandboxStack.Outputs.KiroLoginUrl
   KiroStartUrl:
     Description: AWS access portal URL -- enter this as the "your organization" login on Kiro.
     Value: !GetAtt SandboxStack.Outputs.KiroStartUrl
+  KiroRegion:
+    Description: Region to pick on the Kiro sign-in screen.
+    Value: us-east-1
   KiroLoginEmail:
     Description: Kiro (Identity Center) username.
     Value: !Ref AttendeeEmail
   KiroPassword:
     Description: One-time Kiro password (set a new one on first sign-in).
     Value: !GetAtt SandboxStack.Outputs.KiroPassword
+  KiroSandboxRoleArn:
+    Description: Paste into Kiro Web -- Settings > Agent > Sandbox > IAM Role.
+    Value: !GetAtt SandboxStack.Outputs.KiroSandboxRoleArn
+  # Flyte login (second browser tab -- where you watch runs).
+  FlyteUiUrl:
+    Value: !Sub "https://${Prep.Domain}/v2"
+  FlyteLoginEmail:
+    Value: !Ref AttendeeEmail
+  FlytePassword:
+    Value: !GetAtt SandboxStack.Outputs.FlytePassword

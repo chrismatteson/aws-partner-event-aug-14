@@ -1,5 +1,8 @@
 # 11 -- Arize Phoenix: trace an agent running inside Flyte
 
+> ⚠️ **This module is currently unavailable** while its setup is reworked. Skip to
+> [Module 99](99-now-you-drive.md).
+
 **~60 minutes.** You'll add a third browser tab — and deploy the thing behind it yourself.
 
 By now you've watched a lot of work run in the Flyte UI: what started, whether it retried,

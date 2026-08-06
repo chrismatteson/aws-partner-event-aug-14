@@ -1,59 +1,118 @@
-# Build agentic pipelines on Flyte -- AWS Partner Workshop
+# Build agentic pipelines on Flyte — AWS Partner Workshop
 
 **August 14 · Full day · Everything runs in your browser.**
 
-You get an AWS account with a **Flyte devbox** already running in it, and you drive
-it from **Kiro Web** -- AWS's browser-based coding agent. No laptop setup, no Docker,
-no `pip install`. Two browser tabs and you're building.
+You get an AWS account with a **Flyte devbox** already running in it, and you drive it from
+**Kiro Web** — AWS's browser-based coding agent. No laptop setup. Two browser tabs and
+you're building.
 
 By the end of the day you'll have run Python on a real cluster, fanned it out across
-hundreds of inputs, survived failures, parsed a pile of PDFs in parallel, and traced
-an agent end to end -- and you'll have written almost none of it by hand.
+hundreds of inputs, survived failures, and traced an agent end to end — and written almost
+none of it by hand.
 
 ---
 
-## How this workshop works
+## How this works
 
-**You don't type code. You direct an agent that types code.**
+**You don't type code. You direct an agent that types code.** Each module gives you a
+**task**, **hints**, and a **stretch** question. You turn those into a prompt, then *prove
+it worked* in the Flyte UI.
 
-Every module gives you a **task** to accomplish, **hints** to guide your prompt, and a
-**stretch** question to deepen your understanding. Your job is to read the context,
-construct a prompt that gets Kiro to build the right thing, then *prove it actually
-worked* in the Flyte UI.
-
-> **The one rule that makes this work:** Kiro's output will differ every single time,
-> for every person in the room. That's fine and expected. We never check that your
-> code looks a certain way. We check that **the right thing happened** -- a run
-> succeeded, work ran in parallel, a failure recovered. Each module ends with a
-> **Checkpoint** you verify yourself.
-
-### How to use this workshop
-
-Your workflow for every section follows the same loop:
-
-1. **Read the module.** Each section gives you context about *what* you are building and *why* it matters. Read it before you prompt -- it tells you what to ask for.
-2. **Write your own prompt.** The task box tells you what to accomplish. The hints tell you what concepts matter. You put those together into a prompt for Kiro -- there is no single right answer.
-3. **Verify in the Flyte UI.** Every section has a checkpoint. Go look at the execution in the Flyte UI and confirm the right thing happened. Do not take Kiro's word for it.
-4. **Ask why.** The stretch question is there to make you curious. Ask Kiro to explain the thing you just built so you understand it, not just so you saw it work.
-5. **Move on.** Once the checkpoint is green, move to the next section.
-
-The modules get progressively less guided. Module 01 gives you generous hints; by the partner tracks you are expected to figure out more on your own.
+Kiro's output differs every time, for every person — that's expected. We never check that
+your code looks a certain way. We check that **the right thing happened**: a run succeeded,
+work ran in parallel, a failure recovered. Each module ends with a **Checkpoint** you verify
+yourself.
 
 ### Two tabs, two jobs
 
 | Tab | What it is | What you do there |
 |---|---|---|
-| **Kiro Web** -- [app.kiro.dev](https://app.kiro.dev) | The agent. Chat, plan, build. | Write prompts. Read what it wrote. Ask it "why?" |
-| **Flyte UI** -- `https://<your-domain>/v2` | Your devbox. Real executions. | **Watch things run.** This is where you verify. |
+| **Kiro Web** | The agent. Chat, plan, build. | Write prompts. Read what it wrote. Ask "why?" |
+| **Flyte UI** — `https://<your-domain>/v2` | Your devbox. Real executions. | **Watch things run.** This is where you verify. |
 
-**Keep the Flyte UI open all day.** Kiro Web has no terminal -- you will never watch a
-log scroll by. The Flyte UI *is* your terminal, and it's a much better one: every
-task, every retry, every parallel branch, every report, rendered live.
+**Keep the Flyte UI open all day.** Kiro has no terminal — the Flyte UI *is* your terminal,
+and a better one: every task, retry, and parallel branch rendered live. When Kiro says
+something worked, **go look** instead of taking its word.
 
-That inversion is the whole point. You direct, the agent executes, and the cluster
-shows you the truth. When Kiro claims something worked, **don't take its word for
-it -- go look.** Checking the agent's homework is a skill worth practicing on a day
-when the stakes are zero.
+---
+
+## Setup
+
+You have a card (or the CloudFormation **Outputs**) with these values: `KiroLoginUrl`,
+`KiroStartUrl`, `KiroRegion`, `KiroLoginEmail`, `KiroPassword`, `KiroSandboxRoleArn`, plus
+`FlyteUiUrl` / `FlyteLoginEmail` / `FlytePassword`. About five minutes.
+
+### 1. Sign in to Kiro
+
+Open **`KiroLoginUrl`** and choose **"Sign in with your organization."** Enter your
+**`KiroStartUrl`** and pick region **`KiroRegion`**, then sign in with **`KiroLoginEmail`**
+and **`KiroPassword`** (you'll set a new password on first sign-in).
+
+> 📸 _Screenshot: the "your organization" sign-in screen with start URL + region._
+
+### 2. Configure the sandbox
+
+All under **Settings → Agent**.
+
+**a. Network access → allow all outbound internet.**
+
+> 📸 _Screenshot: network access set to allow all outbound._
+
+**b. MCP servers → add a server.** Paste this — it's what keeps Kiro honest about Flyte's
+API (without it, agents confidently invent Flyte calls that never existed):
+
+```json
+{
+  "mcpServers": {
+    "flyte": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://flyte-mcp.apps.demo.hosted.unionai.cloud/flyte-mcp/mcp"]
+    }
+  }
+}
+```
+
+> 📸 _Screenshot: the MCP servers panel with `flyte` connected (green)._
+
+**c. Sandbox → IAM Role.** Paste your **`KiroSandboxRoleArn`** and save. This is what lets
+the sandbox reach *your* AWS account with short-lived credentials — no keys to paste.
+
+> 📸 _Screenshot: the IAM Role field with the ARN pasted._
+
+**d. Steering files → add.** Open
+**[.kiro/steering/workshop.md](.kiro/steering/workshop.md)**, copy the **whole file**, and
+paste it in. This is the agent's rulebook and its devbox-connection script.
+
+> 📸 _Screenshot: the steering files panel with the workshop file pasted in._
+
+### 3. Connect to your devbox
+
+Start a task and prompt:
+
+> Connect to my devbox.
+
+The steering tells Kiro how: it reads your config from AWS, writes the Flyte config, logs in
+to your registry, and calls the devbox — printing a ✅ when it's connected. The first call
+can take ~2 minutes while the box wakes.
+
+**✅ Checkpoint A — connected.** Kiro reports `✅ Connected` and a Flyte UI URL.
+
+### 4. Open the Flyte UI tab
+
+Open **`FlyteUiUrl`** in a second tab and log in with **`FlyteLoginEmail`** /
+**`FlytePassword`**. You'll see an empty execution list. Leave this tab open all day — it's
+where you verify everything.
+
+**✅ Checkpoint B — MCP is live.** Paste to Kiro:
+
+> Using the Flyte MCP server, tell me what a `TaskEnvironment` is and what `@env.task` does
+> in Flyte v2. Quote the docs and name the MCP tool you called.
+
+**Pass:** specifics, quoted from real docs, tool named. **Fail:** a fluent answer with no
+citation, or any mention of `@workflow`, `flytekit`, `pyflyte`, or `map_task` — those are
+Flyte **v1**, the tell of a broken MCP. If you see it, redo step 2b.
+
+Both green? → **[Module 01](modules/01-first-task.md)**.
 
 ---
 
@@ -61,60 +120,39 @@ when the stakes are zero.
 
 | Time | Module | What you'll build |
 |---|---|---|
-| 09:00 | [Setup](setup/) | Kiro Web wired to your devbox |
-| 09:30 | [01 -- Your first cloud task](modules/01-first-task.md) | Plain Python, running on a cluster |
-| 10:00 | [02 -- Fan out](modules/02-fan-out.md) | The same task across 200 inputs, in parallel |
-| 10:30 | *break* | |
-| 10:45 | [03 -- Survive, see, and ship](modules/03-resilience.md) | Retries, live reports, and deploy |
-| 11:30 | [10 -- LlamaIndex](modules/10-llamaindex.md) | Parse a stack of PDFs in parallel, cached by content |
-| 12:30 | *lunch* | |
-| 13:30 | [11 -- Arize Phoenix](modules/11-arize-phoenix.md) | Deploy Phoenix to your own cluster, trace an agent into it |
-| 14:30 | *break* | |
-| 14:45 | [99 -- Now you drive](modules/99-now-you-drive.md) | Build something of your own |
+| 09:00 | Setup (above) | Kiro wired to your devbox |
+| 09:30 | [01 — Your first cloud task](modules/01-first-task.md) | Plain Python, running on a cluster |
+| 10:00 | [02 — Fan out](modules/02-fan-out.md) | The same task across 200 inputs, in parallel |
+| 10:45 | [03 — Survive, see, and ship](modules/03-resilience.md) | Retries, live reports, and deploy |
+| 11:30 | [10 — LlamaIndex](modules/10-llamaindex.md) ⚠️ | Parse a stack of PDFs in parallel _(currently unavailable)_ |
+| 13:30 | [11 — Arize Phoenix](modules/11-arize-phoenix.md) ⚠️ | Trace an agent into Phoenix _(currently unavailable)_ |
+| 14:45 | [99 — Now you drive](modules/99-now-you-drive.md) | Build something of your own |
 
----
-
-## Start here
-
-👉 **[setup/](setup/)** -- one deploy command, then ~5 minutes of clicks in Kiro Web. Do it
-before Module 01.
-
-Everything after setup assumes two things are true:
-1. Kiro can reach your devbox (Setup Checkpoint A).
-2. Kiro can reach the Flyte MCP server (Setup Checkpoint B).
-
-If either is false, later modules fail in confusing ways. Don't skip the checkpoints.
+> ⚠️ **Modules 10 and 11 are currently unavailable** while their data/setup is reworked.
 
 ---
 
 ## What is this stuff?
 
-**Flyte** is an orchestrator. You write normal Python functions, mark them as tasks,
-and Flyte runs them on real infrastructure -- with parallelism, retries, caching, and
-observability that you don't have to build.
-
-**Devbox** is a whole Flyte cluster on one EC2 box. Real k3s, real object storage,
-real executions -- just small and cheap and yours. It auto-stops when idle.
-
-**Kiro Web** is an agentic IDE in your browser. It clones your repo into a sandbox,
-writes code, runs it, and opens pull requests.
-
-**The Flyte MCP server** is what keeps Kiro honest. It gives the agent live access to
-Flyte's real docs and APIs. Without it, agents confidently invent Flyte APIs that have
-never existed. With it, they write current, correct code. This is why setup matters.
+- **Flyte** — an orchestrator. Write normal Python functions, mark them as tasks, and Flyte
+  runs them on real infrastructure with parallelism, retries, caching, and observability you
+  don't have to build.
+- **Devbox** — a whole Flyte cluster on one EC2 box: real k3s, real object storage, real
+  executions, just small and yours.
+- **Kiro Web** — an agentic IDE in your browser. It writes code, runs it, and can open PRs.
+- **The Flyte MCP server** — gives Kiro live access to Flyte's real docs and APIs so it
+  writes current, correct code instead of inventing v1 APIs. This is why setup step 2b matters.
 
 ---
 
 ## Getting unstuck
 
-- **Kiro says it worked but the UI shows nothing.** Trust the UI. Ask Kiro:
-  *"Show me the exact command you ran and its full output."*
-- **Kiro is inventing Flyte APIs.** Its MCP connection is broken. Redo
-  [Setup Checkpoint B](setup/README.md#-checkpoint-b-the-mcp-is-live).
-- **Everything hangs.** The first request of the day can be slow while the cluster comes
-  up. (If auto-stop was enabled — it's off by default — the first request after ~30 min
-  idle wakes the box, ~2 min.) Wait, then retry.
-- **Still stuck?** Grab a facilitator. Seriously -- don't burn 20 minutes solo.
+- **Kiro says it worked but the UI shows nothing.** Trust the UI. Ask: *"Show me the exact
+  command you ran and its full output."*
+- **Kiro is inventing Flyte APIs.** Its MCP connection is broken — redo Checkpoint B.
+- **Everything hangs.** The first request of the day is slow while the cluster wakes (~2 min).
+  Wait, then retry.
+- **Still stuck?** Grab a facilitator — don't burn 20 minutes solo.
 
 ## After today
 

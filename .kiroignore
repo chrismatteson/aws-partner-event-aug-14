@@ -2,8 +2,9 @@
 # grounded only by .kiro/steering. Attendees read these files on GitHub; the agent must
 # not — reading them would let it skip ahead through the exercises.
 #
-# What stays visible to the agent (NOT ignored): .kiro/steering/, scripts/, corpus/*.pdf,
-# pyproject.toml, and work/. That's the whole world it should see.
+# What stays visible to the agent (NOT ignored): .kiro/steering/, pyproject.toml, and
+# work/. That's the whole world it should see. (Attendees no longer clone this repo — the
+# steering file is pasted into Kiro directly — so this mainly matters if the repo is opened.)
 #
 # ⚠️ .kiroignore is documented for the Kiro IDE; whether Kiro Web honors a repo-committed
 # one is unverified (see ORGANIZER.md red tests), and there is an open bug where it can be
@@ -11,7 +12,6 @@
 # enforces the same boundary as a fallback — do not rely on this file alone.
 
 modules/
-setup/
 provisioning/
 images/
 ORGANIZER.md

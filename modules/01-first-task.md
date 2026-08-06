@@ -1,6 +1,6 @@
 # 01 -- Your first cloud task
 
-**~30 minutes.** Prerequisite: both [setup checkpoints](../setup/) are green.
+**~30 minutes.** Prerequisite: both [setup checkpoints](../README.md#setup) are green.
 
 The central claim of Flyte is that you write **normal Python functions**, mark them as
 tasks, and they run on real infrastructure without being rewritten. Not a DSL, not YAML,
@@ -34,11 +34,6 @@ to your account's registry. That's a one-time cost, and it's worth understanding
 than waiting through: your function needs somewhere to run, that somewhere is a container,
 and Flyte just built one for you from four lines of Python. No Dockerfile, no registry
 commands, no CI.
-
-> **Why does it say podman?** Because it is. Flyte's builder wants `docker buildx`; this
-> sandbox has podman. `bootstrap.sh` installed a shim that bridges the two. It's a hack,
-> it's ours, and it lives in `scripts/docker-shim.sh` if you're curious. If a build fails
-> in a way that looks like a weird flag error, that's the first place to look.
 
 Later runs are **fast**. Your code ships separately from the image, as a tarball -- a
 "code bundle" -- so changing a line and re-running doesn't rebuild anything. You only pay
