@@ -2,7 +2,7 @@
 
 These templates are copied from
 [unionai-oss/flyte-aws-marketplace](https://github.com/unionai-oss/flyte-aws-marketplace)
-(Apache-2.0). They're vendored here so this repo is self-contained — `provisioning/deploy.sh`
+(Apache-2.0). They're vendored here so this repo is self-contained — `operator/publish.sh`
 packages `devbox/cloudformation/root.yaml` directly instead of cloning the marketplace repo —
 and so we can **modify them** for the workshop — the ACM `*.apps.<domain>` wildcard cert and
 the Route 53 records the self-delegation model relies on.

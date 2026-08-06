@@ -1,11 +1,11 @@
 # The fallback workshop image. NOT the default path.
 #
 # Attendees build their own images — Image.from_debian_base().with_pip_packages(...) —
-# in the Kiro sandbox via podman + scripts/docker-shim.sh, pushed to their own ECR. That
-# is what the modules teach and what the devbox is designed for.
+# in the Kiro sandbox with its real Docker, pushed to their own ECR. That is what the
+# modules teach and what the devbox is designed for.
 #
-# THIS image exists for one reason: if the build path breaks on the day (the shim, ECR
-# auth, or create-on-push), facilitators hand out WORKSHOP_IMAGE and attendees pin it with
+# THIS image exists for one reason: if the build path breaks on the day (ECR auth or
+# create-on-push), facilitators hand out WORKSHOP_IMAGE and attendees pin it with
 # flyte.Image.from_base(os.environ["WORKSHOP_IMAGE"]), chaining nothing onto it. That
 # reaches zero Docker calls — a non-cloned Image returns its URI verbatim and the builder
 # is never instantiated — so it works even if every build mechanism is broken.

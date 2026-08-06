@@ -115,7 +115,7 @@ Parameters:
     Default: ""
     Description: >-
       Lowercase base for the S3 bucket / ECR namespace / Cognito domain (all lowercase-only).
-      Empty = derive from the stack name (fine for a top-level deploy via deploy.sh). Set to a
+      Empty = derive from the stack name (fine for a top-level deploy). Set to a
       lowercase value when this template is NESTED -- nested stack names contain uppercase,
       which S3/ECR/Cognito reject. provisioning/root.yaml passes "flyte".
 

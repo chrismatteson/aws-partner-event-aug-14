@@ -15,9 +15,10 @@ Description: >
 # DNS label under the parent, NS record only." So even a leaked external-id cannot touch the
 # apex, MX, existing student delegations' parent records, or anything but a single-label NS.
 #
-# Nothing secret lives in the public repo. deploy.sh takes DELEGATOR_ROLE_ARN (an identifier,
-# not a secret) and DELEGATION_EXTERNAL_ID (the secret) from the environment at deploy time;
-# the secret is injected by your private Workshop Studio provisioning, never committed.
+# Nothing secret lives in the public repo. The per-account stack (provisioning/root.yaml)
+# takes the delegator role ARN (an identifier, not a secret) and the external id (the secret)
+# as parameters at deploy time; the secret is injected by your private Workshop Studio
+# provisioning, never committed.
 
 Parameters:
   ParentZoneId:
@@ -32,7 +33,7 @@ Parameters:
     Default: "^s[0-9a-f]{8}$"
     Description: >
       Regex a delegated label must match. Default (and only sensible value) matches
-      deploy.sh's account-id-derived labels s<8-hex> (sha256 of the account id).
+      the account-id-derived labels s<8-hex> (sha256 of the account id).
   DelegationExternalId:
     Type: String
     NoEcho: true
@@ -167,5 +168,5 @@ Outputs:
     Description: Set this as DELEGATOR_ROLE_ARN in each attendee deploy (not a secret).
     Value: !GetAtt DelegatorRole.Arn
   DelegatorFunctionName:
-    Description: Function deploy.sh invokes after assuming the role (defaults to this name).
+    Description: Function the per-account stack invokes after assuming the role (defaults to this name).
     Value: !Ref DelegatorFn

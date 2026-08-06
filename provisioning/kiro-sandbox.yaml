@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Per-attendee Kiro Web scaffolding for the AWS Partner workshop, as a single
   self-contained deploy. Creates everything the workshop needs beyond the devbox: the
-  IAM role a Kiro Web sandbox assumes, the SSM config bootstrap.sh reads, a Bedrock
+  IAM role a Kiro Web sandbox assumes, the SSM config the steering setup reads, a Bedrock
   policy on the devbox instance role, and ECR create-on-push. One `aws cloudformation
   deploy`; its only output, KiroSandboxRoleArn, is the single value an attendee pastes
   into Kiro (Settings > Agent > Sandbox > IAM Role).
@@ -62,7 +62,7 @@ Parameters:
   ParameterPrefix:
     Type: String
     Default: /workshop
-    Description: SSM path prefix. Must match SSM_PREFIX in scripts/bootstrap.sh.
+    Description: SSM path prefix. Must match the /workshop prefix the steering setup reads.
   KiroTier:
     Type: String
     Default: pro
@@ -72,7 +72,7 @@ Parameters:
     Type: String
     Default: ""
     Description: >
-      Changes each deploy (deploy.sh passes a timestamp) so the EnableKiro custom resource
+      Changes each deploy (pass a timestamp) so the EnableKiro custom resource
       re-runs every time -- Kiro enable is idempotent + best-effort, so retrying on each
       deploy is what we want (e.g. after a one-time console "enable Kiro").
 
@@ -82,7 +82,7 @@ Conditions:
 
 Resources:
   # -------------------------------------------------------------------------------------
-  # SSM config — read at runtime by bootstrap.sh via the sandbox role. Nothing typed.
+  # SSM config — read at runtime by the steering setup via the sandbox role. Nothing typed.
   # -------------------------------------------------------------------------------------
   FlyteDomainParam:
     Type: AWS::SSM::Parameter
@@ -555,8 +555,8 @@ Resources:
               # NEVER fail the stack on a Kiro error: the admin API is private/undocumented and
               # its account-state prerequisites (e.g. a console-side "enable Kiro") aren't fully
               # reproducible. Create what we can; report status + a debug trail in the outputs and
-              # CloudWatch so failures are diagnosable without blocking the devbox. Re-run deploy.sh
-              # to retry (e.g. after a one-time console enable).
+              # CloudWatch so failures are diagnosable without blocking the devbox. Re-deploy
+              # (with a fresh KiroNonce) to retry (e.g. after a one-time console enable).
               del DBG[:]
               data = {"KiroStatus": "skipped", "KiroError": "", "KiroInstanceArn": "",
                       "KiroProfileArn": "", "KiroUserId": "", "KiroPassword": "",
@@ -639,7 +639,7 @@ Outputs:
       value an attendee enters; everything else is fetched from SSM using it.
     Value: !GetAtt KiroSandboxRole.Arn
   ParameterPrefix:
-    Description: SSM prefix bootstrap.sh reads. Must match SSM_PREFIX in scripts/bootstrap.sh.
+    Description: SSM prefix the steering setup reads (the /workshop prefix).
     Value: !Ref ParameterPrefix
   FlyteUiUrl:
     Description: Open this in a browser to reach the Flyte UI (log in with the Cognito user below).

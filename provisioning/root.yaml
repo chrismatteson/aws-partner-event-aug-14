@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   One-stack, pure-CloudFormation entry point for a workshop account. Deploy THIS into each
-  attendee account (e.g. via AWS Workshop Studio) and it stands the account up end to end --
-  the same thing provisioning/deploy.sh does imperatively, expressed as CloudFormation:
+  attendee account (e.g. via AWS Workshop Studio) and it stands the account up end to end,
+  all as CloudFormation:
   derive a unique subdomain from the account id, create + self-delegate its Route 53 zone,
   bring up the Flyte devbox, wire the Kiro provisioning stack, and enable Kiro via API.
   No shell orchestration -- CREATE does everything; the handout values are stack Outputs.
@@ -67,7 +67,7 @@ Resources:
   # ===================================================================================
   # Prep: derive the account's subdomain (sha256 of the account id) and publish the AMI id
   # to SSM /flyte-devbox/ami/latest, which the devbox template resolves at changeset time.
-  # Runs before the zone + devbox. Replaces deploy.sh's derive + AMI-preflight steps.
+  # Runs before the zone + devbox (the subdomain-derive + AMI-preflight steps).
   # ===================================================================================
   HelperBaseRole:
     Type: AWS::IAM::Role
@@ -136,7 +136,7 @@ Resources:
 
   # ===================================================================================
   # Delegate: assume the central delegator role (external-id gated) and invoke its guard to
-  # write the one NS record in the parent zone. Replaces deploy.sh's assume-role block.
+  # write the one NS record in the parent zone (the cross-account assume-role step).
   # DependsOn Zone so the nameservers exist. Must finish before the devbox (ACM validation).
   # ===================================================================================
   DelegateRole:
@@ -226,8 +226,8 @@ Resources:
 
   # ===================================================================================
   # Wire: pull the values kiro-sandbox needs that aren't clean devbox outputs -- the Cognito
-  # M2M client secret, the hosted-UI domain, and the devbox instance role name. Same fetches
-  # deploy.sh does (describe-user-pool-client / describe-user-pool / find the instance role).
+  # M2M client secret, the hosted-UI domain, and the devbox instance role name
+  # (describe-user-pool-client / describe-user-pool / find the instance role).
   # ===================================================================================
   WireRole:
     Type: AWS::IAM::Role

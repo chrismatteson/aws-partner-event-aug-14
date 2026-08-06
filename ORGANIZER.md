@@ -23,8 +23,8 @@ setup and no repo to clone. The only things they touch are browser tabs.
 - **Auth is Cognito machine-to-machine, not PKCE** (no browser in the sandbox). The
   steering file writes `~/.flyte/config.yaml` with `authType: ExternalCommand` and a
   token script that does the client-credentials grant.
-- **Kiro's sandbox now has real Docker** — attendees build images in-sandbox and push to
-  their own ECR. (The old podman shim is gone.)
+- **Kiro's sandbox has real Docker** — attendees build images in-sandbox and push to
+  their own ECR.
 - **LLM access is AWS Bedrock via the EC2 instance role — no API keys.** Attendee code uses
   `AnthropicBedrockMantle`; creds resolve from IMDS.
 
