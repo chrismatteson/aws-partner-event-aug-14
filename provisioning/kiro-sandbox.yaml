@@ -382,12 +382,14 @@ Resources:
                   headers={"content-type": "", "content-length": str(len(body))})
               urllib.request.urlopen(req)
 
-          def q_api(region, target, body, sign="q"):
+          def q_api(region, target, body, sign="q", host=None):
               # SigV4-signed POST to the private Q Developer / CodeWhisperer admin endpoint. The
               # signing service DIFFERS by op: AmazonQDeveloperService.* => 'q';
-              # AWSCodeWhispererService.* (profiles) => 'codewhisperer'.
+              # AWSCodeWhispererService.* (profiles) => 'codewhisperer'. Some ops now live on the
+              # migrated Kiro control plane (host=management.<region>.kiro.dev) -- pass `host` for
+              # those; signing name stays 'codewhisperer' there too.
               c = boto3.Session().get_credentials().get_frozen_credentials()
-              url = "https://codewhisperer.%s.amazonaws.com/" % region
+              url = "https://%s/" % (host or ("codewhisperer.%s.amazonaws.com" % region))
               payload = json.dumps(body)
               h = {"Content-Type": "application/x-amz-json-1.0", "X-Amz-Target": target}
               r = botocore.awsrequest.AWSRequest(method="POST", url=url, data=payload, headers=h)
@@ -498,21 +500,27 @@ Resources:
                       arn = json.loads(resp).get("arn") or json.loads(resp).get("profileArn")
                   except Exception:
                       arn = None
-              # Enable Kiro Web (autonomous agents). CreateProfile does NOT set it -- the console
+              # Enable Kiro Cloud (autonomous agents). CreateProfile does NOT set it -- the console
               # follows up with UpdateProfile optInFeatures.autonomousAgents.toggle=ON (from HAR).
+              # CRITICAL: this MUST hit the migrated control plane host management.<region>.kiro.dev
+              # (target KiroControlPlaneService.UpdateProfile). The legacy
+              # AWSCodeWhispererService.UpdateProfile on codewhisperer.amazonaws.com still returns
+              # 200 but is now a NO-OP -- the toggle never persists (confirmed live: ListProfiles
+              # via management.kiro.dev shows autonomousAgents absent after the legacy call, ON
+              # after this one). "Kiro Web" was renamed "Kiro Cloud" in the UI; same field.
               if arn:
-                  ok, resp = q_api(region, "AWSCodeWhispererService.UpdateProfile", {
+                  ok, resp = q_api(region, "KiroControlPlaneService.UpdateProfile", {
                       "profileArn": arn,
                       "profileName": "kiro-workshop",
                       "identitySource": {"ssoIdentitySource": {"instanceArn": iarn, "ssoRegion": region}},
-                      # overageConfiguration here triggers "Identity source with SSO region ...
-                      # required when overage configuration is specified" (400) -- omit it;
-                      # autonomousAgents ON alone is what flips on Kiro Web.
-                      "optInFeatures": {"autonomousAgents": {"toggle": "ON"}},
+                      # overageConfiguration IS accepted on this endpoint (its 400 was
+                      # legacy-endpoint-specific); DISABLED caps usage -- no surprise overage bills.
+                      "optInFeatures": {"autonomousAgents": {"toggle": "ON"},
+                                        "overageConfiguration": {"overageStatus": "DISABLED"}},
                       "optInFeaturesType": "KIRO",
                       "referenceTrackerConfiguration": {"recommendationsWithReferences": "ALLOW"},
                       "activeFunctionalities": ["ANALYSIS", "CONVERSATIONS", "TASK_ASSIST", "TRANSFORMATIONS", "COMPLETIONS"],
-                  }, "codewhisperer")
+                  }, "codewhisperer", host="management.%s.kiro.dev" % region)
                   log("autonomous agents ON" if ok else "autonomousAgents FAILED: " + resp[:140])
               return arn
 
