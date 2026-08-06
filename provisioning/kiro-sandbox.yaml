@@ -513,10 +513,13 @@ Resources:
                       "profileArn": arn,
                       "profileName": "kiro-workshop",
                       "identitySource": {"ssoIdentitySource": {"instanceArn": iarn, "ssoRegion": region}},
-                      # overageConfiguration IS accepted on this endpoint (its 400 was
-                      # legacy-endpoint-specific); DISABLED caps usage -- no surprise overage bills.
-                      "optInFeatures": {"autonomousAgents": {"toggle": "ON"},
-                                        "overageConfiguration": {"overageStatus": "DISABLED"}},
+                      # DO NOT send overageConfiguration here. In the same call as autonomousAgents
+                      # it breaks the toggle: on a fresh profile it 400s ("Identity source with SSO
+                      # region ... required when overage configuration is specified"), and on an
+                      # aged profile it returns 200 but silently drops autonomousAgents. Confirmed
+                      # live both ways. And it buys nothing -- profiles already default to
+                      # overageStatus DISABLED. autonomousAgents ON alone is what flips Kiro Cloud.
+                      "optInFeatures": {"autonomousAgents": {"toggle": "ON"}},
                       "optInFeaturesType": "KIRO",
                       "referenceTrackerConfiguration": {"recommendationsWithReferences": "ALLOW"},
                       "activeFunctionalities": ["ANALYSIS", "CONVERSATIONS", "TASK_ASSIST", "TRANSFORMATIONS", "COMPLETIONS"],
