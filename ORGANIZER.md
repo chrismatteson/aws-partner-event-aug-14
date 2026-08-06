@@ -36,9 +36,9 @@ docs are in [`operator/`](operator/README.md).
 1. **Once, ever:** deploy the delegator role (`operator/delegator-role.yaml`) in the
    `flytedemo.app` account and set the external-id secret. After that every account's
    subdomain auto-derives (`s<hash>.flytedemo.app`) and self-delegates — no per-account DNS.
-2. **Per account:** `bash operator/deploy.sh` (one command, no args) — or point AWS Workshop
-   Studio at `root.yaml`. It deploys the devbox + Kiro provisioning stack, writes per-attendee
-   config to SSM, mints the sandbox IAM role, and **enables Kiro end-to-end via API**:
+2. **Per account:** point AWS Workshop Studio at `root.yaml` (pure CloudFormation, no shell).
+   It deploys the devbox + Kiro provisioning stack, writes per-attendee config to SSM, mints
+   the sandbox IAM role, and **enables Kiro end-to-end via API**:
    Identity Center instance + profile + user + Pro subscription, **Kiro Cloud toggle on**, and
    **MFA disabled**. No console step. (Kiro's control-plane APIs are undocumented and have
    moved before — see `operator/README.md` and the private-API notes if enablement breaks.)
