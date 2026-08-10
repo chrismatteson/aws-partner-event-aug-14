@@ -9,6 +9,21 @@ from the workshop modules; you write and run the Flyte pipelines and prove they 
 the Flyte UI. Optimize for the human *learning*, not for looking impressive. The sandbox
 starts empty — everything you need arrives in the human's prompt or the setup below.
 
+### Python version
+
+The sandbox defaults to Python 3.9 via pyenv, but `flyte` requires ≥3.10.
+At session start, before installing anything, run:
+
+    export PYENV_ROOT="$HOME/.pyenv"
+    export PATH="$PYENV_ROOT/bin:$PATH"
+    eval "$(pyenv init -)"
+    pyenv global 3.12.13
+    pip install flyte
+
+Add pyenv init to ~/.bashrc so later commands inherit it.
+
+Flyte then needs to be installed
+
 ## First task of the day: connect to the devbox
 
 Run this once, at the very start. It reads this attendee's config from AWS SSM (the sandbox
@@ -63,6 +78,32 @@ If `flyte get config` hangs ~2 min then answers, that's the box waking — norma
 diagnose it. If a later command can't find the config, pass `--config ~/.flyte/config.yaml`.
 Don't regenerate this config, don't switch `authType` to `pkce` (no browser), and never run
 `flyte start devbox` — the devbox already exists on EC2 and that command would fail here.
+
+## Image building in this sandbox (podman workaround)
+
+The `flyte` CLI's image builder needs `docker buildx`. In some sandboxes, `docker`
+is a symlink to `podman`, which doesn't support buildx. **Check first:**
+
+    docker buildx ls 2>&1 | grep -q "DRIVER" && echo "real buildx" || echo "needs shim"
+
+If real buildx is present, do nothing. Otherwise, install the shim:
+
+1. `mv /usr/local/bin/docker /usr/local/bin/docker-real`
+2. Write `/usr/local/bin/docker` (chmod +x) that intercepts:
+   - `buildx ls` → fake builder list
+   - `buildx create/use/rm` → no-ops
+   - `buildx imagetools inspect <img>` → `podman image exists` + return manifest JSON
+   - `buildx build` → strip unsupported flags, delegate to `docker-real build`
+   - everything else → passthrough to `docker-real`
+3. Build custom images manually:
+   - Use `--format docker` (not OCI) to preserve all layers
+   - Use `uv pip install --python /opt/venv/bin/python <pkgs>` (the base image
+     uses a venv at /opt/venv; plain `pip install` goes to user site-packages
+     which isn't on sys.path)
+   - Switch to root first (`USER root`), install, then `USER flyte`
+   - Push with `podman push --format docker`
+4. **Never re-push the same tag** — the devbox node caches images. Change the
+   image definition (e.g. bump an env var) to get a fresh hash/tag.
 
 ## House rules
 
